@@ -716,10 +716,11 @@ AlphaSwarm is a multi-agent AI crypto alpha scanner built as an Intercom feature
 
 ### What It Does
 
-1. **Scanner agents** (OnChain Scout, News Hawk, Sentiment Analyst, Telegram Scout, Reddit Scout, X Scout) scan 7+ data sources every 60 seconds
-2. Signals are broadcast to the `alphaswarm-debate` sidechannel
-3. The **Judge agent** collects signals, groups by token, and runs an LLM debate (Anthropic Claude)
-4. If conviction score >= 7/10, the call is published to `0000alphaswarm` sidechannel + Telegram + X/Twitter
+1. **6 scanner agents** (OnChain Scout, News Hawk, Sentiment Analyst, Telegram Scout, Reddit Scout, X Scout) scan 7+ data sources every 60 seconds
+2. Signals are broadcast to the `alphaswarm-debate` sidechannel via Intercom P2P
+3. The **Judge agent** collects signals, groups by token, prioritizes lowcap gems, and runs a multi-round LLM debate (Anthropic Claude)
+4. Dynamic thresholds: lowcaps published if score >= 7/10, large caps (BTC, ETH, SOL, etc.) only if score >= 9/10
+5. Published calls go to `0000alphaswarm` sidechannel + optional Telegram and X/Twitter relay
 
 ### Installation & Running
 
@@ -736,10 +737,14 @@ pear run . store1
 | Key | Required | Description |
 |-----|----------|-------------|
 | `agents.llm_api_key` | Optional | Anthropic API key for LLM debate |
-| `telegram.bot_token` | Optional | Telegram bot token |
-| `telegram.channel_id` | Optional | Telegram channel for calls |
+| `telegram.bot_token` | Optional | Telegram bot token from @BotFather |
+| `telegram.channel_id` | Optional | Telegram channel to post calls |
+| `twitter.app_key` | Optional | X/Twitter app key for relay |
+| `twitter.app_secret` | Optional | X/Twitter app secret |
+| `twitter.access_token` | Optional | X/Twitter access token |
+| `twitter.access_secret` | Optional | X/Twitter access secret |
 
-Works without any API keys (DexScreener + CoinGecko free APIs + heuristic scoring).
+Works without any API keys (DexScreener + CoinGecko free APIs + heuristic scoring). Adding the Anthropic key enables the full multi-round LLM debate.
 
 ### Terminal Commands
 
@@ -749,13 +754,26 @@ Works without any API keys (DexScreener + CoinGecko free APIs + heuristic scorin
 | `/alpha_last` | Show last published call |
 | `/alpha_stats` | Show statistics |
 
+### Data Sources
+
+| Agent | Sources | API Key Required |
+|-------|---------|-----------------|
+| OnChain Scout | DexScreener, CoinGecko | No (free APIs) |
+| News Hawk | CoinTelegraph, TheBlock, Decrypt RSS | No |
+| Sentiment Analyst | CoinGecko trending, Alternative.me Fear & Greed | No |
+| Telegram Scout | Public Telegram channels | No |
+| Reddit Scout | r/CryptoMoonShots, r/cryptocurrency, r/SatoshiStreetBets | No |
+| X Scout | Twitter Syndication API + Nitter fallback | No |
+
 ### Verification
 
 Run `pear run . store1` and confirm:
 - `=============== STARTING ALPHASWARM ===============` banner appears
 - 6 agents start (OnChain Scout, News Hawk, Sentiment Analyst, Telegram Scout, Reddit Scout, X Scout)
-- Signals are detected and processed by the Judge
-- Sidechannel channels: `alphaswarm-debate`, `0000alphaswarm`
+- Signals are detected and broadcast to `alphaswarm-debate`
+- Judge evaluates tokens and publishes calls to `0000alphaswarm`
+- Use `/alpha_status` to check all agents are running
+- Use `/alpha_stats` to see signal and call counts
 
 ### Trac Address (for payouts)
 
