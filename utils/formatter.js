@@ -16,7 +16,7 @@ export class Formatter {
     if (token.symbol) msg += `$${token.symbol}`;
     if (token.chain) msg += ` | ${token.chain}`;
     msg += '\n';
-    if (token.address) msg += `CA: ${token.address}\n`;
+    if (token.address && token.address.length > 20) msg += `CA: ${token.address}\n`;
     if (token.price_usd) msg += `Price: $${token.price_usd}\n`;
     if (token.market_cap) msg += `MC: $${Formatter._fmtNum(token.market_cap)}\n`;
     if (token.volume_24h) {
@@ -87,7 +87,7 @@ export class Formatter {
     if (token.chain) msg += ` ${chainEmoji} _${token.chain}_`;
     msg += '\n\n';
 
-    if (token.address) msg += `\u{1F4CB} CA: \`${token.address}\`\n`;
+    if (token.address && token.address.length > 20) msg += `\u{1F4CB} CA: \`${token.address}\`\n`;
     if (token.price_usd) msg += `\u{1F4B5} Price: \`$${token.price_usd}\`\n`;
     if (token.market_cap) msg += `\u{1F4C8} MC: \`$${Formatter._fmtNum(token.market_cap)}\`\n`;
     if (token.volume_24h) msg += `\u{1F4CA} Vol 24h: \`$${Formatter._fmtNum(token.volume_24h)}\`\n`;
@@ -127,11 +127,23 @@ export class Formatter {
   }
 
   static _extractToken(signals) {
+    let best = null;
+    let bestScore = -1;
     for (const s of signals) {
       const t = s.data?.token || s.token;
-      if (t && (t.symbol || t.name)) return t;
+      if (!t || (!t.symbol && !t.name)) continue;
+      // Prefer tokens with real on-chain data (address, chain, liquidity)
+      let sc = 0;
+      if (t.address && t.address.length > 10) sc += 4;
+      if (t.chain && t.chain !== 'multi') sc += 3;
+      if (t.pair_url) sc += 2;
+      if (t.price_usd) sc += 1;
+      if (t.volume_24h) sc += 1;
+      if (t.liquidity_usd) sc += 1;
+      if (t.market_cap) sc += 1;
+      if (sc > bestScore) { best = t; bestScore = sc; }
     }
-    return {};
+    return best || {};
   }
 
   static _scoreBar(score) {
@@ -156,6 +168,10 @@ export class Formatter {
     if (token.pair_url) return token.pair_url;
     if (token.address && token.chain && token.chain !== 'multi') {
       return `https://dexscreener.com/${token.chain}/${token.address}`;
+    }
+    // Fallback: search link by symbol
+    if (token.symbol) {
+      return `https://dexscreener.com/search?q=${token.symbol}`;
     }
     return '';
   }
