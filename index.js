@@ -1,4 +1,14 @@
 /** @typedef {import('pear-interface')} */
+
+// Polyfill global fetch for Bare runtime (must be before any module that uses fetch)
+import bareFetch from 'bare-fetch';
+if (!globalThis.fetch) {
+  globalThis.fetch = bareFetch;
+  globalThis.Request = bareFetch.Request;
+  globalThis.Response = bareFetch.Response;
+  globalThis.Headers = bareFetch.Headers;
+}
+
 import fs from 'fs';
 import path from 'path';
 import b4a from 'b4a';
@@ -14,6 +24,16 @@ import SampleContract from './contract/contract.js';
 import { Timer } from './features/timer/index.js';
 import Sidechannel from './features/sidechannel/index.js';
 import ScBridge from './features/sc-bridge/index.js';
+import { OnChainAgent } from './agents/onchain-agent.js';
+import { NewsAgent } from './agents/news-agent.js';
+import { SentimentAgent } from './agents/sentiment-agent.js';
+import { JudgeAgent } from './agents/judge-agent.js';
+import { TelegramAgent } from './agents/telegram-agent.js';
+import { RedditAgent } from './agents/reddit-agent.js';
+import { TwitterScanAgent } from './agents/twitter-scan-agent.js';
+import { Scanner } from './features/scanner/index.js';
+import { TelegramRelay } from './relay/telegram-bot.js';
+import { TwitterRelay } from './relay/twitter-bot.js';
 
 const { env, storeLabel, flags } = getPearRuntime();
 
@@ -232,6 +252,22 @@ const sidechannelExtras = sidechannelsRaw
   .split(',')
   .map((value) => value.trim())
   .filter((value) => value.length > 0 && value !== sidechannelEntry);
+
+// === AlphaSwarm Config ===
+let alphaswarmConfig = {};
+try {
+  if (fs.existsSync('config.json')) {
+    alphaswarmConfig = JSON.parse(fs.readFileSync('config.json', 'utf8'));
+  }
+} catch (err) {
+  console.warn('[AlphaSwarm] Could not load config.json, using defaults:', err?.message);
+}
+const alphaDebateChannel = alphaswarmConfig.alphaswarm?.debate_channel || 'alphaswarm-debate';
+const alphaPublicChannel = alphaswarmConfig.alphaswarm?.public_channel || '0000alphaswarm';
+const alphaChannels = [alphaDebateChannel, alphaPublicChannel].filter(
+  (c) => c !== sidechannelEntry && !sidechannelExtras.includes(c)
+);
+sidechannelExtras.push(...alphaChannels);
 
 if (sidechannelWelcomeRequired && !sidechannelOwnerMap.has(sidechannelEntry)) {
   console.warn(
@@ -458,11 +494,35 @@ const sidechannel = new Sidechannel(peer, {
   ownerWriteChannels: sidechannelOwnerWriteChannels || undefined,
   ownerKeys: sidechannelOwnerMap.size > 0 ? sidechannelOwnerMap : undefined,
   welcomeByChannel: sidechannelWelcomeMap.size > 0 ? sidechannelWelcomeMap : undefined,
-  onMessage: scBridgeEnabled
-    ? (channel, payload, connection) => scBridge.handleSidechannelMessage(channel, payload, connection)
-    : sidechannelQuiet
-      ? () => {}
-      : null,
+  onMessage: (channel, payload, connection) => {
+    // SC-Bridge forwarding
+    if (scBridgeEnabled) {
+      scBridge.handleSidechannelMessage(channel, payload, connection);
+    }
+    // AlphaSwarm message routing
+    if (channel === alphaDebateChannel || channel === alphaPublicChannel) {
+      try {
+        const raw = typeof payload === 'string' ? payload
+          : typeof payload?.message === 'string' ? payload.message
+          : null;
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (parsed.type === 'signal' && globalThis._alphaswarmJudge) {
+            globalThis._alphaswarmJudge.signalBuffer.push({
+              agent: parsed.agent,
+              role: parsed.role,
+              data: parsed.data,
+            });
+          }
+        }
+      } catch (_e) {}
+    }
+    // Console logging (unless quiet or bridge-only)
+    if (!sidechannelQuiet && !scBridgeEnabled) {
+      const display = payload?.message || (typeof payload === 'string' ? payload : JSON.stringify(payload));
+      console.log(`[SC:${channel}]`, typeof display === 'string' ? display.slice(0, 200) : display);
+    }
+  },
 });
 peer.sidechannel = sidechannel;
 
@@ -480,6 +540,75 @@ sidechannel
   .start()
   .then(() => {
     console.log('Sidechannel: ready');
+
+    // === AlphaSwarm Agent Initialization ===
+    console.log('');
+    console.log('=============== STARTING ALPHASWARM ===============');
+
+    const onchainAgent = new OnChainAgent(peer, alphaswarmConfig);
+    const newsAgent = new NewsAgent(peer, alphaswarmConfig);
+    const judgeAgent = new JudgeAgent(peer, alphaswarmConfig);
+    const scannerAgents = [onchainAgent, newsAgent];
+
+    // Add sentiment agent if CryptoPanic API key is configured
+    if (alphaswarmConfig.sources?.cryptopanic?.api_key) {
+      const sentimentAgent = new SentimentAgent(peer, alphaswarmConfig);
+      scannerAgents.push(sentimentAgent);
+      console.log('[AlphaSwarm] Sentiment agent enabled');
+    }
+
+    // Add Telegram channel scanner if configured
+    if (alphaswarmConfig.sources?.telegram_channels?.enabled) {
+      const telegramAgent = new TelegramAgent(peer, alphaswarmConfig);
+      scannerAgents.push(telegramAgent);
+      console.log('[AlphaSwarm] Telegram channel scanner enabled');
+    }
+
+    // Add Reddit scanner if configured
+    if (alphaswarmConfig.sources?.reddit?.enabled !== false) {
+      const redditAgent = new RedditAgent(peer, alphaswarmConfig);
+      scannerAgents.push(redditAgent);
+      console.log('[AlphaSwarm] Reddit scanner enabled');
+    }
+
+    // Add X/Twitter scanner if configured
+    if (alphaswarmConfig.sources?.twitter_scanner?.enabled) {
+      const xScoutAgent = new TwitterScanAgent(peer, alphaswarmConfig);
+      scannerAgents.push(xScoutAgent);
+      console.log('[AlphaSwarm] X/Twitter scanner enabled');
+    }
+
+    // Register agents with Judge
+    judgeAgent.registerAgents(scannerAgents);
+    globalThis._alphaswarmJudge = judgeAgent;
+
+    // Telegram relay
+    const telegramRelay = new TelegramRelay(alphaswarmConfig);
+    telegramRelay.start();
+    telegramRelay.attachToJudge(judgeAgent);
+
+    // Twitter/X relay
+    const twitterRelay = new TwitterRelay(alphaswarmConfig);
+    twitterRelay.start();
+    twitterRelay.attachToJudge(judgeAgent);
+
+    // Store scanner reference on peer for protocol commands
+    const scanner = new Scanner(peer, { agents: scannerAgents, judgeAgent });
+    peer.alphaswarm = { scanner, judgeAgent, agents: scannerAgents, telegramRelay, twitterRelay };
+
+    scanner.start().catch((err) => {
+      console.error('[AlphaSwarm] Scanner stopped:', err?.message ?? err);
+    });
+
+    console.log(`[AlphaSwarm] Debate channel: ${alphaDebateChannel}`);
+    console.log(`[AlphaSwarm] Public channel: ${alphaPublicChannel}`);
+    console.log(`[AlphaSwarm] Agents: ${scannerAgents.map((a) => a.name).join(', ')}`);
+    console.log(`[AlphaSwarm] Publish threshold: ${alphaswarmConfig.alphaswarm?.publish_threshold || 7}/10`);
+    console.log(`[AlphaSwarm] LLM: ${alphaswarmConfig.agents?.llm_api_key ? 'configured' : 'not configured (heuristic mode)'}`);
+    console.log(`[AlphaSwarm] Telegram: ${telegramRelay.enabled ? 'enabled' : 'disabled'}`);
+    console.log(`[AlphaSwarm] Twitter/X: ${twitterRelay.enabled ? 'enabled' : 'disabled'}`);
+    console.log('====================================================');
+    console.log('');
   })
   .catch((err) => {
     console.error('Sidechannel failed to start:', err?.message ?? err);

@@ -224,7 +224,11 @@ class SampleProtocol extends Protocol{
         console.log('- /sc_invite --channel "<name>" --pubkey "<peer-pubkey-hex>" [--ttl <sec>] [--welcome <json|b64|@file>] | create a signed invite.');
         console.log('- /sc_welcome --channel "<name>" --text "<message>" | create a signed welcome.');
         console.log('- /sc_stats | show sidechannel channels + connection count.');
-        // further protocol specific options go here
+        console.log(' ');
+        console.log('- AlphaSwarm Commands:');
+        console.log('- /alpha_status | show AlphaSwarm agent status.');
+        console.log('- /alpha_last | show last published alpha call.');
+        console.log('- /alpha_stats | show call statistics.');
     }
 
     /**
@@ -592,6 +596,50 @@ class SampleProtocol extends Protocol{
         if (this.input.startsWith("/print")) {
             const splitted = this.parseArgs(input);
             console.log(splitted.text);
+            return;
+        }
+        // === AlphaSwarm Commands ===
+        if (this.input.startsWith("/alpha_status")) {
+            const alpha = this.peer.alphaswarm;
+            if (!alpha) {
+                console.log('[AlphaSwarm] Not initialized yet.');
+                return;
+            }
+            console.log(alpha.scanner.getStatus());
+            return;
+        }
+        if (this.input.startsWith("/alpha_last")) {
+            const alpha = this.peer.alphaswarm;
+            if (!alpha) {
+                console.log('[AlphaSwarm] Not initialized yet.');
+                return;
+            }
+            const history = alpha.judgeAgent.callHistory;
+            if (history.length === 0) {
+                console.log('[AlphaSwarm] No calls published yet.');
+                return;
+            }
+            const last = history[history.length - 1];
+            console.log('[AlphaSwarm] Last call:', last.verdict);
+            return;
+        }
+        if (this.input.startsWith("/alpha_stats")) {
+            const alpha = this.peer.alphaswarm;
+            if (!alpha) {
+                console.log('[AlphaSwarm] Not initialized yet.');
+                return;
+            }
+            const j = alpha.judgeAgent;
+            const oneHourAgo = Date.now() - 3600000;
+            const callsLastHour = j.callHistory.filter(c => c.timestamp > oneHourAgo).length;
+            console.log({
+                total_calls: j.callHistory.length,
+                calls_last_hour: callsLastHour,
+                pending_signals: j.signalBuffer.length,
+                agents_running: alpha.agents.filter(a => a.running).length,
+                agents_total: alpha.agents.length,
+            });
+            return;
         }
     }
 }

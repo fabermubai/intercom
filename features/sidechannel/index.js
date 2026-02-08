@@ -26,15 +26,6 @@ const normalizeKeyHex = (value) => {
   if (!value) return null;
   if (b4a.isBuffer(value)) return b4a.toString(value, 'hex');
   if (typeof value === 'string') return value.trim().toLowerCase();
-  // JSON.stringify(Buffer.from(...)) yields { type: 'Buffer', data: [...] }.
-  // Sidechannels use `c.json` encoding, so decode-side keys can arrive in this form.
-  if (typeof value === 'object' && value.type === 'Buffer' && Array.isArray(value.data)) {
-    try {
-      return b4a.toString(b4a.from(value.data), 'hex');
-    } catch (_e) {
-      return null;
-    }
-  }
   return String(value).trim().toLowerCase();
 };
 
@@ -255,8 +246,7 @@ class Sidechannel extends Feature {
 
   _buildPayload(channel, message, invite = null) {
     const ts = this._now();
-    // Encode keys as hex strings, not Buffers, because we transmit payloads via JSON encoding.
-    const from = normalizeKeyHex(this.peer?.wallet?.publicKey) ?? null;
+    const from = this.peer?.wallet?.publicKey ?? null;
     const id = `${from ?? 'anon'}:${ts}:${Math.random().toString(36).slice(2, 10)}`;
     const payload = {
       type: 'sidechannel',
@@ -270,9 +260,6 @@ class Sidechannel extends Feature {
     };
     if (invite) payload.invite = invite;
     this._attachPow(payload);
-    // Message-level signatures allow receivers to enforce "owner-only write" even when
-    // messages are relayed (the transport peer can be a relay, not the original sender).
-    this._attachSig(payload);
     return payload;
   }
 
@@ -303,7 +290,7 @@ class Sidechannel extends Feature {
     const relayed = {
       ...payload,
       ttl: ttl - 1,
-      relayedBy: normalizeKeyHex(this.peer?.wallet?.publicKey) ?? null,
+      relayedBy: this.peer?.wallet?.publicKey ?? null,
     };
     for (const [connection, perConn] of this.connections.entries()) {
       if (connection === originConnection) continue;
@@ -571,77 +558,6 @@ class Sidechannel extends Feature {
     return countLeadingZeroBits(hash) >= difficulty;
   }
 
-  _sigPayload(payload) {
-    // Normalize to JSON-compatible data so the signature base matches what receivers
-    // observe after compact-encoding's JSON roundtrip.
-    let message = null;
-    try {
-      message = JSON.parse(JSON.stringify(payload?.message ?? null));
-    } catch (_e) {
-      message = null;
-    }
-
-    return {
-      kind: 'sidechannel_message_v1',
-      id: payload?.id ?? null,
-      channel: payload?.channel ?? null,
-      from: normalizeKeyHex(payload?.from) ?? null,
-      origin: normalizeKeyHex(payload?.origin) ?? null,
-      ts: payload?.ts ?? null,
-      message,
-    };
-  }
-
-  _sigBase(payload) {
-    return stableStringify(this._sigPayload(payload));
-  }
-
-  _attachSig(payload) {
-    if (!payload || typeof payload !== 'object') return false;
-    if (!this.peer?.wallet || typeof this.peer.wallet.sign !== 'function') return false;
-    const msg = this._sigBase(payload);
-    let sig = null;
-    try {
-      sig = this.peer.wallet.sign(b4a.from(msg));
-    } catch (_e) {
-      return false;
-    }
-    let sigHex = '';
-    if (typeof sig === 'string') {
-      sigHex = sig.trim();
-    } else if (sig && sig.length > 0) {
-      sigHex = b4a.toString(sig, 'hex');
-    }
-    if (!sigHex) return false;
-    payload.sig = sigHex.toLowerCase();
-    if (this.debug) {
-      const control = payload?.message?.control;
-      if (control !== 'auth' && control !== 'welcome') {
-        const hash = sha256Hex(msg);
-        console.log(
-          `[sidechannel:${payload?.channel ?? 'unknown'}] sign hash=${hash} sigLen=${payload.sig.length}`
-        );
-      }
-    }
-    return true;
-  }
-
-  _verifySig(payload, pubkeyHex) {
-    const sigHex = payload?.sig || payload?.signature;
-    if (typeof sigHex !== 'string' || sigHex.length === 0) return false;
-    if (typeof pubkeyHex !== 'string' || pubkeyHex.length === 0) return false;
-    let sigBuf = null;
-    let pubBuf = null;
-    try {
-      sigBuf = b4a.from(sigHex, 'hex');
-      pubBuf = b4a.from(String(pubkeyHex).trim().toLowerCase(), 'hex');
-    } catch (_e) {
-      return false;
-    }
-    const msg = this._sigBase(payload);
-    return PeerWallet.verify(sigBuf, b4a.from(msg), pubBuf);
-  }
-
   _registerChannel(name) {
     const channel = String(name || '').trim();
     if (!channel) return null;
@@ -796,19 +712,12 @@ class Sidechannel extends Feature {
         // channels can authorize listeners without giving them write access.
         const controlEarly = payload?.message?.control;
         const isAuthControl = controlEarly === 'auth';
-        const isWelcomeControl = controlEarly === 'welcome';
-        if (this._ownerWriteOnly(entry.name) && !isAuthControl && !isWelcomeControl) {
+        if (this._ownerWriteOnly(entry.name) && !isAuthControl) {
           const ownerKey = this._getOwnerKey(entry.name);
           const author = normalizeKeyHex(payload?.from);
-          // NOTE: payload.from is user-supplied; verify message signature to prevent spoofing.
-          const sigOk = ownerKey ? this._verifySig(payload, ownerKey) : false;
-          if (!ownerKey || !author || author !== ownerKey || !sigOk) {
+          if (!ownerKey || !author || author !== ownerKey) {
             if (this.debug) {
-              const sigHex = payload?.sig || payload?.signature || '';
-              const hash = sha256Hex(this._sigBase(payload));
-              console.log(
-                `[sidechannel:${entry.name}] drop (owner-only) author=${author} owner=${ownerKey} sigOk=${sigOk} sigLen=${sigHex.length} hash=${hash} fromRemote=${this._getRemoteKey(connection)}`
-              );
+              console.log(`[sidechannel:${entry.name}] drop (owner-only) from ${this._getRemoteKey(connection)}`);
             }
             return;
           }

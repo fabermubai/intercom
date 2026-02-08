@@ -1,10 +1,11 @@
 {
-  "name": "contract-test-latest",
-  "version": "0.0.1",
+  "name": "alphaswarm",
+  "version": "1.0.0",
+  "description": "Multi-agent AI crypto alpha scanner built on Intercom (Trac Network)",
   "type": "module",
   "main": "index.js",
   "pear": {
-    "name": "contract-test-latest",
+    "name": "alphaswarm",
     "type": "terminal"
   },
   "dependencies": {

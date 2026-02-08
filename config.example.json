@@ -1,0 +1,79 @@
+{
+  "alphaswarm": {
+    "public_channel": "0000alphaswarm",
+    "debate_channel": "alphaswarm-debate",
+    "scan_interval_seconds": 60,
+    "publish_threshold": 7,
+    "max_calls_per_hour": 10,
+    "language": "en"
+  },
+  "sources": {
+    "dexscreener": {
+      "enabled": true,
+      "chains": ["solana", "ethereum", "base"],
+      "min_volume_usd": 50000,
+      "min_liquidity_usd": 10000,
+      "max_age_hours": 24
+    },
+    "cryptopanic": {
+      "enabled": true,
+      "api_key": "YOUR_CRYPTOPANIC_API_KEY",
+      "categories": ["news", "media"],
+      "min_votes": 3
+    },
+    "coingecko": {
+      "enabled": true,
+      "watch_trending": true,
+      "watch_gainers": true
+    },
+    "rss": {
+      "enabled": true,
+      "feeds": [
+        "https://cointelegraph.com/rss",
+        "https://theblock.co/rss.xml",
+        "https://decrypt.co/feed"
+      ]
+    },
+    "telegram_channels": {
+      "enabled": true,
+      "channels": ["daborealpha", "CryptoInsidersOnline", "GemHunterGems"],
+      "keywords": ["moon", "gem", "alpha", "call", "signal", "buy", "ape", "breakout", "pump", "100x"],
+      "cache_ttl_seconds": 120
+    },
+    "reddit": {
+      "enabled": true,
+      "subreddits": ["CryptoMoonShots", "cryptocurrency", "SatoshiStreetBets"],
+      "sort": "hot",
+      "limit": 15,
+      "cache_ttl_seconds": 180
+    },
+    "fear_greed": {
+      "enabled": true,
+      "cache_ttl_seconds": 300
+    },
+    "twitter_scanner": {
+      "enabled": true,
+      "accounts": ["lookonchain", "WatcherGuru", "whale_alert", "CryptoCapo_", "MustStopMurad", "AltcoinGordon"],
+      "cache_ttl_seconds": 180
+    }
+  },
+  "agents": {
+    "llm_provider": "anthropic",
+    "llm_api_key": "YOUR_ANTHROPIC_API_KEY",
+    "llm_model": "claude-sonnet-4-20250514",
+    "debate_rounds": 2,
+    "agent_temperature": 0.7
+  },
+  "telegram": {
+    "enabled": false,
+    "bot_token": "YOUR_TELEGRAM_BOT_TOKEN",
+    "channel_id": "@alphaswarm_calls"
+  },
+  "twitter": {
+    "enabled": false,
+    "app_key": "YOUR_X_APP_KEY",
+    "app_secret": "YOUR_X_APP_SECRET",
+    "access_token": "YOUR_X_ACCESS_TOKEN",
+    "access_secret": "YOUR_X_ACCESS_SECRET"
+  }
+}

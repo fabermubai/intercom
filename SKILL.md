@@ -707,3 +707,57 @@ Use these repos for deeper troubleshooting or protocol understanding:
 - `main_settlement_bus` (commit `5088921`): https://github.com/Trac-Systems/main_settlement_bus
 - `trac-crypto-api` (commit `b3c781d`): https://github.com/Trac-Systems/trac-crypto-api
 - `trac-wallet` (npm `1.0.1`): https://www.npmjs.com/package/trac-wallet
+
+---
+
+## AlphaSwarm — Multi-Agent Alpha Scanner
+
+AlphaSwarm is a multi-agent AI crypto alpha scanner built as an Intercom feature. Agents scan crypto markets in real-time, debate opportunities via Intercom sidechannels, and publish high-conviction alpha calls.
+
+### What It Does
+
+1. **Scanner agents** (OnChain Scout, News Hawk, Sentiment Analyst, Telegram Scout, Reddit Scout, X Scout) scan 7+ data sources every 60 seconds
+2. Signals are broadcast to the `alphaswarm-debate` sidechannel
+3. The **Judge agent** collects signals, groups by token, and runs an LLM debate (Anthropic Claude)
+4. If conviction score >= 7/10, the call is published to `0000alphaswarm` sidechannel + Telegram + X/Twitter
+
+### Installation & Running
+
+```bash
+git clone https://github.com/fabermubai/intercom.git
+cd intercom
+npm install
+cp config.example.json config.json   # Edit with your API keys
+pear run . store1
+```
+
+### Configuration (config.json)
+
+| Key | Required | Description |
+|-----|----------|-------------|
+| `sources.cryptopanic.api_key` | Optional | CryptoPanic free API key |
+| `agents.llm_api_key` | Optional | Anthropic API key for LLM debate |
+| `telegram.bot_token` | Optional | Telegram bot token |
+| `telegram.channel_id` | Optional | Telegram channel for calls |
+
+Works without any API keys (DexScreener + CoinGecko free APIs + heuristic scoring).
+
+### Terminal Commands
+
+| Command | Description |
+|---------|-------------|
+| `/alpha_status` | Show agent status |
+| `/alpha_last` | Show last published call |
+| `/alpha_stats` | Show statistics |
+
+### Verification
+
+Run `pear run . store1` and confirm:
+- `=============== STARTING ALPHASWARM ===============` banner appears
+- 6 agents start (OnChain Scout, News Hawk, Sentiment Analyst, Telegram Scout, Reddit Scout, X Scout)
+- Signals are detected and processed by the Judge
+- Sidechannel channels: `alphaswarm-debate`, `0000alphaswarm`
+
+### Trac Address (for payouts)
+
+`trac10njpx7gluagxkg96tld2f90nj9mvpgy5gc4akf7z77pncu9u8enstmvsyx`
