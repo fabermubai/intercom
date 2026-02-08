@@ -117,6 +117,51 @@ export class Formatter {
     return msg;
   }
 
+  static formatTelegramWatchlist(verdict, signals) {
+    const token = Formatter._extractToken(signals);
+    const score = verdict.score || 0;
+    const risks = verdict.risks || [];
+    const chainEmoji = Formatter._chainEmoji(token.chain);
+
+    const scoreBar = Formatter._scoreBar(score);
+    const scoreEmoji = score >= 5 ? '\u{1F7E1}' : score >= 3 ? '\u{1F7E0}' : '\u{1F534}';
+
+    let msg = `\u{1F4E1} *ALPHASWARM RADAR* ${scoreEmoji}\n`;
+    msg += `\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n\n`;
+
+    if (token.symbol) msg += `\u{1F4B0} *$${token.symbol}*`;
+    if (token.chain) msg += ` ${chainEmoji} _${token.chain}_`;
+    msg += '\n\n';
+
+    if (token.address && token.address.length > 20) msg += `\u{1F4CB} CA: \`${token.address}\`\n`;
+    if (token.price_usd) msg += `\u{1F4B5} Price: \`$${token.price_usd}\`\n`;
+    if (token.market_cap) msg += `\u{1F4C8} MC: \`$${Formatter._fmtNum(token.market_cap)}\`\n`;
+    if (token.volume_24h) msg += `\u{1F4CA} Vol 24h: \`$${Formatter._fmtNum(token.volume_24h)}\`\n`;
+    if (token.liquidity_usd) msg += `\u{1F3CA} Liq: \`$${Formatter._fmtNum(token.liquidity_usd)}\`\n`;
+    msg += '\n';
+
+    msg += `\u{1F3AF} *Score:* ${scoreBar} *${score}/10*\n\n`;
+
+    if (verdict.summary) msg += `\u{1F4AC} _${verdict.summary}_\n\n`;
+
+    if (risks.length > 0) {
+      msg += '\u26A0\uFE0F *Risks:*\n';
+      for (const r of risks) msg += `  \u2022 ${r}\n`;
+      msg += '\n';
+    }
+
+    msg += `\u{1F6A8} *DISCLAIMER:* This token scored *${score}/10* — below our call threshold. `;
+    msg += `It may be interesting to watch for a deep/dip entry if you believe in the project. `;
+    msg += `*DYOR — this is NOT a call.*\n`;
+
+    const dexUrl = Formatter._dexScreenerUrl(token);
+    if (dexUrl) msg += `\n\u{1F50D} [View on DexScreener](${dexUrl})\n`;
+
+    msg += `\n\u23F0 _${new Date().toISOString().slice(0, 19)} UTC_`;
+    msg += `\n\u{1F517} _Powered by AlphaSwarm AI_`;
+    return msg;
+  }
+
   static formatSignal(signal) {
     const d = signal.data || signal;
     const agent = signal.agent || d.agent || 'Unknown';

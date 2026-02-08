@@ -22,6 +22,9 @@ export class TelegramRelay {
     judgeAgent.onCall(({ verdict, signals }) => {
       this.sendCall(verdict, signals);
     });
+    judgeAgent.onWatchlist(({ verdict, signals }) => {
+      this.sendWatchlist(verdict, signals);
+    });
   }
 
   async sendCall(verdict, signals) {
@@ -32,6 +35,17 @@ export class TelegramRelay {
       this.logger.info('Call sent to Telegram');
     } catch (err) {
       this.logger.error(`Telegram send failed: ${err.message}`);
+    }
+  }
+
+  async sendWatchlist(verdict, signals) {
+    if (!this.enabled) return;
+    try {
+      const message = Formatter.formatTelegramWatchlist(verdict, signals);
+      await this._sendMessage(message);
+      this.logger.info('Watchlist sent to Telegram');
+    } catch (err) {
+      this.logger.error(`Telegram watchlist send failed: ${err.message}`);
     }
   }
 

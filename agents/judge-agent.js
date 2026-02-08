@@ -44,6 +44,7 @@ export class JudgeAgent extends BaseAgent {
     this.debateRounds = config.agents?.debate_rounds || 2;
     this.callHistory = [];
     this.callListeners = [];
+    this.watchlistListeners = [];
     this.llmApiKey = config.agents?.llm_api_key || '';
     this.llmModel = config.agents?.llm_model || 'claude-sonnet-4-20250514';
     this.llmTemperature = config.agents?.agent_temperature || 0.7;
@@ -73,6 +74,10 @@ export class JudgeAgent extends BaseAgent {
 
   onCall(fn) {
     this.callListeners.push(fn);
+  }
+
+  onWatchlist(fn) {
+    this.watchlistListeners.push(fn);
   }
 
   async start() {
@@ -148,7 +153,7 @@ export class JudgeAgent extends BaseAgent {
         priority += 3; // lowcap bonus
       }
 
-      candidates.push({ tokenKey, signals, maxStrength, uniqueAgents, isLargeCap, priority });
+      candidates.push({ tokenKey, signals, maxStrength, uniqueAgents, isLargeCap, maxMarketCap, priority });
     }
 
     if (skippedCooldown > 0) {
@@ -160,7 +165,7 @@ export class JudgeAgent extends BaseAgent {
 
     let evalsThisCycle = 0;
     let deferred = 0;
-    for (const { tokenKey, signals, maxStrength, isLargeCap } of candidates) {
+    for (const { tokenKey, signals, maxStrength, isLargeCap, maxMarketCap } of candidates) {
       if (evalsThisCycle >= this.maxEvalsPerCycle) {
         this.signalBuffer.push(...signals);
         deferred++;
@@ -186,12 +191,17 @@ export class JudgeAgent extends BaseAgent {
       const verdict = await this.runDebate(tokenKey, signals);
       evalsThisCycle++;
 
+      if (!verdict) continue;
+
       // Dynamic threshold: large caps need 10 (practically never), others need 7
       const threshold = isLargeCap ? 10 : this.publishThreshold;
-      if (verdict && verdict.score >= threshold) {
+      if (verdict.score >= threshold) {
         this._publish(verdict, signals);
+      } else if (!isLargeCap && maxMarketCap > 0 && maxMarketCap < 1_000_000) {
+        // Radar: only tokens with confirmed MC under $1M
+        this._publishWatchlist(verdict, signals);
       } else {
-        this.logger.info(`${tokenKey}: score ${verdict?.score || 0}/10 - below threshold (${threshold}${isLargeCap ? ' largecap' : ''})`);
+        this.logger.info(`${tokenKey}: score ${verdict.score}/10 - skipped (${isLargeCap ? 'largecap' : `MC $${Math.round(maxMarketCap / 1e6)}M > 1M`})`);
       }
     }
     if (deferred > 0) {
@@ -413,6 +423,20 @@ export class JudgeAgent extends BaseAgent {
     this.logger.info(`PUBLISHED [${tag}]: ${verdict.token} - Score ${verdict.score}/10`);
 
     for (const fn of this.callListeners) {
+      try {
+        fn({ verdict, signals, formatted: formattedCall });
+      } catch {}
+    }
+  }
+
+  _publishWatchlist(verdict, signals) {
+    const formattedCall = Formatter.formatAlphaCall(verdict, signals);
+    this.publishCall(formattedCall);
+    this.publishedTokens.set(verdict.token, Date.now());
+    const tag = KNOWN_LARGE_CAPS.has(verdict.token) ? 'LARGECAP' : 'LOWCAP';
+    this.logger.info(`WATCHLIST [${tag}]: ${verdict.token} - Score ${verdict.score}/10`);
+
+    for (const fn of this.watchlistListeners) {
       try {
         fn({ verdict, signals, formatted: formattedCall });
       } catch {}
