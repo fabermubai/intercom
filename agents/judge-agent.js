@@ -8,6 +8,8 @@ const LARGE_CAPS = new Set([
   'BTC', 'ETH', 'BNB', 'XRP', 'SOL', 'ADA', 'DOGE', 'TRX', 'AVAX', 'DOT',
   'LINK', 'MATIC', 'UNI', 'LTC', 'ATOM', 'XLM', 'NEAR', 'TON', 'HBAR',
   'ARB', 'OP', 'AAVE', 'SUI', 'APT', 'FIL', 'ICP', 'PEPE', 'SHIB', 'WIF',
+  'HYPE', 'PENGU', 'TAO', 'RENDER', 'INJ', 'SEI', 'TIA', 'JUP', 'ONDO',
+  'PAXG', 'MKR', 'RUNE', 'FET', 'GRT', 'STX', 'IMX', 'MANA', 'SAND',
 ]);
 
 const PERSONAS = {
