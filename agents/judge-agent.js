@@ -3,14 +3,14 @@ import { Formatter } from '../utils/formatter.js';
 import { Scoring } from '../utils/scoring.js';
 import { FearGreedClient } from '../sources/fear-greed.js';
 
-// Large/mid caps — require exceptional catalysts, not routine signals
-const LARGE_CAPS = new Set([
+// Well-known large caps (fallback when market cap data is unavailable)
+const KNOWN_LARGE_CAPS = new Set([
   'BTC', 'ETH', 'BNB', 'XRP', 'SOL', 'ADA', 'DOGE', 'TRX', 'AVAX', 'DOT',
   'LINK', 'MATIC', 'UNI', 'LTC', 'ATOM', 'XLM', 'NEAR', 'TON', 'HBAR',
-  'ARB', 'OP', 'AAVE', 'SUI', 'APT', 'FIL', 'ICP', 'PEPE', 'SHIB', 'WIF',
-  'HYPE', 'PENGU', 'TAO', 'RENDER', 'INJ', 'SEI', 'TIA', 'JUP', 'ONDO',
-  'PAXG', 'MKR', 'RUNE', 'FET', 'GRT', 'STX', 'IMX', 'MANA', 'SAND',
 ]);
+
+// Dynamic large cap threshold: any token with MC > 100M is treated as large cap
+const LARGE_CAP_THRESHOLD = 100_000_000;
 
 const PERSONAS = {
   onchain: `You are OnChain Scout, an on-chain analyst. You evaluate tokens based ONLY on on-chain data: volume, liquidity, token age, holder distribution, trading patterns. You look for red flags (rug pulls, honeypots, wash trading) but recognize that young tokens with strong volume and liquidity can be early alpha opportunities — age alone is not a disqualifier. Give your verdict in 2-3 sentences max with a conviction score (1-10).`,
@@ -25,7 +25,13 @@ const PERSONAS = {
 
   xscout: `You are X Scout, a crypto Twitter analyst. You evaluate tokens based on tweets from whale trackers, influencers, and alpha accounts. You assess the credibility of the source, the engagement metrics (likes, retweets), and whether the signal represents genuine alpha or paid promotion. You watch for coordinated shilling and distinguish real whale movements from noise. Give your verdict in 2-3 sentences max with a conviction score (1-10).`,
 
-  judge: `You are the Judge of AlphaSwarm, an AI-powered crypto alpha scanner focused on finding HIGH-MULTIPLIER opportunities. You synthesize arguments from all agents to produce a final verdict. Your priority is finding LOWCAP gems with 5-100x potential — young tokens with strong volume, liquidity, and multi-source buzz. For large caps (BTC, ETH, SOL, etc.), only score 8+ if there is an EXCEPTIONAL catalyst (major crash recovery, critical news, extreme fear/greed divergence). For lowcaps, be more generous — early discovery is the goal. You MUST respond with ONLY a JSON object (no markdown, no extra text) in this format: { "score": <number 1-10>, "verdict": "call" or "skip", "arguments_for": [<string>, ...], "risks": [<string>, ...], "summary": "<one sentence summary>" }`,
+  judge: `You are the Judge of AlphaSwarm, an AI-powered crypto alpha scanner focused on finding HIGH-MULTIPLIER opportunities in LOWCAP tokens (under $100M market cap). You synthesize arguments from all agents to produce a final verdict.
+
+PRIORITY: Find lowcap gems (under $100M MC) with 5-100x potential — young tokens with strong volume, liquidity, and multi-source buzz. Be generous with lowcaps — early discovery is the goal.
+
+LARGE CAPS (over $100M MC): Almost NEVER call these. Only score 7+ if ALL of the following: (1) massive price crash (-20%+ in 24h) creating a dip buy opportunity, OR (2) major team/protocol announcement (new chain launch, major partnership, token burn), OR (3) extreme fear/greed divergence. Routine trending or sentiment signals are NOT enough for large caps.
+
+You MUST respond with ONLY a JSON object (no markdown, no extra text) in this format: { "score": <number 1-10>, "verdict": "call" or "skip", "arguments_for": [<string>, ...], "risks": [<string>, ...], "summary": "<one sentence summary>" }`,
 };
 
 export class JudgeAgent extends BaseAgent {
@@ -105,7 +111,13 @@ export class JudgeAgent extends BaseAgent {
       const maxStrength = Math.max(...signals.map(s => s.data?.signal_strength || 0));
       const uniqueAgents = new Set(signals.map(s => s.role)).size;
       const hasMultipleAgents = uniqueAgents >= 2;
-      const isLargeCap = LARGE_CAPS.has(tokenKey);
+
+      // Dynamic large cap detection: market cap > 100M OR well-known name
+      const maxMarketCap = Math.max(0, ...signals.map(s => {
+        const t = s.data?.token || s.token || {};
+        return t.market_cap || 0;
+      }));
+      const isLargeCap = KNOWN_LARGE_CAPS.has(tokenKey) || maxMarketCap >= LARGE_CAP_THRESHOLD;
 
       // Minimum strength to even consider
       // Large caps need much stronger signals to avoid wasting LLM calls
@@ -397,7 +409,7 @@ export class JudgeAgent extends BaseAgent {
     this.publishCall(formattedCall);
     this.callHistory.push({ timestamp: Date.now(), verdict });
     this.publishedTokens.set(verdict.token, Date.now());
-    const tag = LARGE_CAPS.has(verdict.token) ? 'LARGECAP' : 'LOWCAP';
+    const tag = KNOWN_LARGE_CAPS.has(verdict.token) ? 'LARGECAP' : 'LOWCAP';
     this.logger.info(`PUBLISHED [${tag}]: ${verdict.token} - Score ${verdict.score}/10`);
 
     for (const fn of this.callListeners) {
@@ -424,8 +436,9 @@ export class JudgeAgent extends BaseAgent {
   }
 
   _buildContext(tokenKey, signals) {
-    const isLargeCap = LARGE_CAPS.has(tokenKey);
-    let ctx = `Token under evaluation: ${tokenKey} [${isLargeCap ? 'LARGE CAP — requires exceptional catalyst' : 'LOW/MID CAP — high multiplier potential'}]\n`;
+    const maxMc = Math.max(0, ...signals.map(s => (s.data?.token || s.token || {}).market_cap || 0));
+    const isLargeCap = KNOWN_LARGE_CAPS.has(tokenKey) || maxMc >= LARGE_CAP_THRESHOLD;
+    let ctx = `Token under evaluation: ${tokenKey} [${isLargeCap ? `LARGE CAP (MC: $${Math.round(maxMc / 1e6)}M) — only call on major crash dip, team announcement, or exceptional catalyst` : 'LOW/MID CAP — high multiplier potential'}]\n`;
     if (this.fearGreedCache) {
       ctx += `\nMarket Macro: Fear & Greed Index = ${this.fearGreedCache.value}/100 (${this.fearGreedCache.label})\n`;
     }
