@@ -186,6 +186,34 @@ export class JudgeAgent extends BaseAgent {
     return out;
   }
 
+  // Remove escaped lone surrogates from a JSON string (\uD800-\uDFFF)
+  _sanitizeJsonBody(json) {
+    return json.replace(/\\u([0-9a-fA-F]{4})/g, (match, hex, offset, str) => {
+      const code = parseInt(hex, 16);
+      if (code >= 0xD800 && code <= 0xDBFF) {
+        // High surrogate — check if followed by escaped low surrogate
+        const rest = str.slice(offset + 6, offset + 12);
+        if (/^\\u[0-9a-fA-F]{4}/.test(rest)) {
+          const nextCode = parseInt(rest.slice(2, 6), 16);
+          if (nextCode >= 0xDC00 && nextCode <= 0xDFFF) return match;
+        }
+        return '';
+      }
+      if (code >= 0xDC00 && code <= 0xDFFF) {
+        // Low surrogate — check if preceded by escaped high surrogate
+        if (offset >= 6) {
+          const prev = str.slice(offset - 6, offset);
+          if (/\\u[0-9a-fA-F]{4}$/.test(prev)) {
+            const prevCode = parseInt(prev.slice(2, 6), 16);
+            if (prevCode >= 0xD800 && prevCode <= 0xDBFF) return match;
+          }
+        }
+        return '';
+      }
+      return match;
+    });
+  }
+
   async _callLLM(systemPrompt, userPrompt) {
     if (!this.llmApiKey) {
       this.logger.debug('No LLM API key, using heuristic');
@@ -193,6 +221,14 @@ export class JudgeAgent extends BaseAgent {
     }
 
     try {
+      const body = this._sanitizeJsonBody(JSON.stringify({
+        model: this.llmModel,
+        max_tokens: 512,
+        temperature: this.llmTemperature,
+        system: this._sanitize(systemPrompt),
+        messages: [{ role: 'user', content: this._sanitize(userPrompt) }],
+      }));
+
       const res = await fetch('https://api.anthropic.com/v1/messages', {
         method: 'POST',
         headers: {
@@ -200,13 +236,7 @@ export class JudgeAgent extends BaseAgent {
           'x-api-key': this.llmApiKey,
           'anthropic-version': '2023-06-01',
         },
-        body: JSON.stringify({
-          model: this.llmModel,
-          max_tokens: 512,
-          temperature: this.llmTemperature,
-          system: this._sanitize(systemPrompt),
-          messages: [{ role: 'user', content: this._sanitize(userPrompt) }],
-        }),
+        body,
       });
 
       if (!res.ok) {
