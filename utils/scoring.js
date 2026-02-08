@@ -14,9 +14,12 @@ export class Scoring {
     else if (liquidityUsd > 50_000) score += 1;
     else if (liquidityUsd > 0 && liquidityUsd < 10_000) score -= 1;
 
-    // Early discovery bonus: young token with solid fundamentals
-    if (ageHours !== null && ageHours < 24 && liquidityUsd >= 10_000 && volume24h >= 50_000) {
-      score += 1.5;
+    // Early discovery bonus: graduated by age — younger = bigger bonus
+    if (ageHours !== null && liquidityUsd >= 5_000 && volume24h >= 20_000) {
+      if (ageHours < 2) score += 3;        // ultra-fresh (< 2h)
+      else if (ageHours < 6) score += 2.5;  // very new (< 6h)
+      else if (ageHours < 24) score += 2;   // new (< 24h)
+      else if (ageHours < 48) score += 1;   // recent (< 48h)
     }
 
     return Math.max(1, Math.min(10, Math.round(score * 10) / 10));

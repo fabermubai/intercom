@@ -43,6 +43,31 @@ export class DexScreenerClient {
       this.logger.error(`Scan failed: ${err.message}`);
     }
 
+    // Scan latest token profiles (freshly listed tokens)
+    try {
+      const latest = await this._fetch('/token-profiles/latest/v1');
+      if (Array.isArray(latest)) {
+        const seen = new Set(signals.map(s => s.token.address));
+        for (const item of latest.slice(0, 15)) {
+          if (!item.chainId || !item.tokenAddress || seen.has(item.tokenAddress)) continue;
+          const pair = await this._fetchTokenPairs(item.chainId, item.tokenAddress);
+          if (pair) {
+            const normalized = this._normalizePair(pair, item.chainId);
+            if (normalized && this._filterPair(normalized, true)) {
+              seen.add(normalized.address);
+              signals.push({
+                source: 'dexscreener',
+                type: this._classifySignal(normalized),
+                token: normalized,
+              });
+            }
+          }
+        }
+      }
+    } catch (err) {
+      this.logger.error(`Latest profiles scan failed: ${err.message}`);
+    }
+
     // Also search for trending pairs on watched chains
     try {
       for (const chain of this.chains) {
@@ -102,16 +127,22 @@ export class DexScreenerClient {
         : 0,
       liquidity_usd: pair.liquidity?.usd || 0,
       age_hours: Math.round(ageHours * 10) / 10,
+      market_cap: pair.marketCap || pair.fdv || 0,
       price_change_1h: pair.priceChange?.h1 || 0,
       price_change_24h: pair.priceChange?.h24 || 0,
       pair_url: pair.url || '',
     };
   }
 
-  _filterPair(token) {
-    if (token.volume_24h < this.minVolume) return false;
-    if (token.liquidity_usd < this.minLiquidity) return false;
-    if (token.age_hours > this.maxAgeHours * 24) return false; // generous filter
+  _filterPair(token, isLatest = false) {
+    // Young tokens (< 48h) get relaxed thresholds to catch early gems
+    const isYoung = token.age_hours < 48;
+    const minVol = isYoung ? this.minVolume * 0.4 : this.minVolume; // 20K vs 50K
+    const minLiq = isYoung ? this.minLiquidity * 0.5 : this.minLiquidity; // 5K vs 10K
+
+    if (token.volume_24h < minVol) return false;
+    if (token.liquidity_usd < minLiq) return false;
+    if (!isLatest && token.age_hours > this.maxAgeHours * 24) return false;
     return true;
   }
 

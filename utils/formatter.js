@@ -16,13 +16,17 @@ export class Formatter {
     if (token.symbol) msg += `$${token.symbol}`;
     if (token.chain) msg += ` | ${token.chain}`;
     msg += '\n';
+    if (token.address) msg += `CA: ${token.address}\n`;
     if (token.price_usd) msg += `Price: $${token.price_usd}\n`;
+    if (token.market_cap) msg += `MC: $${Formatter._fmtNum(token.market_cap)}\n`;
     if (token.volume_24h) {
       msg += `Vol 24h: $${Formatter._fmtNum(token.volume_24h)}`;
       if (token.volume_change_pct) msg += ` (+${token.volume_change_pct}%)`;
       msg += '\n';
     }
     if (token.liquidity_usd) msg += `Liq: $${Formatter._fmtNum(token.liquidity_usd)}\n`;
+    const dexUrl = Formatter._dexScreenerUrl(token);
+    if (dexUrl) msg += `DexScreener: ${dexUrl}\n`;
     msg += '\n';
 
     msg += `Score: ${scoreBar} ${score}/10 (${scoreLabel})\n`;
@@ -83,7 +87,9 @@ export class Formatter {
     if (token.chain) msg += ` ${chainEmoji} _${token.chain}_`;
     msg += '\n\n';
 
+    if (token.address) msg += `\u{1F4CB} CA: \`${token.address}\`\n`;
     if (token.price_usd) msg += `\u{1F4B5} Price: \`$${token.price_usd}\`\n`;
+    if (token.market_cap) msg += `\u{1F4C8} MC: \`$${Formatter._fmtNum(token.market_cap)}\`\n`;
     if (token.volume_24h) msg += `\u{1F4CA} Vol 24h: \`$${Formatter._fmtNum(token.volume_24h)}\`\n`;
     if (token.liquidity_usd) msg += `\u{1F3CA} Liq: \`$${Formatter._fmtNum(token.liquidity_usd)}\`\n`;
     msg += '\n';
@@ -101,6 +107,10 @@ export class Formatter {
       msg += '\n\u26A0\uFE0F *Risks:*\n';
       for (const r of risks) msg += `  \u2022 ${r}\n`;
     }
+
+    // DexScreener link
+    const dexUrl = Formatter._dexScreenerUrl(token);
+    if (dexUrl) msg += `\n\u{1F50D} [View on DexScreener](${dexUrl})\n`;
 
     msg += `\n\u23F0 _${new Date().toISOString().slice(0, 19)} UTC_`;
     msg += `\n\u{1F517} _Powered by AlphaSwarm AI_`;
@@ -142,8 +152,17 @@ export class Formatter {
     return '\u26AA';
   }
 
+  static _dexScreenerUrl(token) {
+    if (token.pair_url) return token.pair_url;
+    if (token.address && token.chain && token.chain !== 'multi') {
+      return `https://dexscreener.com/${token.chain}/${token.address}`;
+    }
+    return '';
+  }
+
   static _fmtNum(n) {
     if (!n) return '0';
+    if (n >= 1_000_000_000) return (n / 1_000_000_000).toFixed(1) + 'B';
     if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + 'M';
     if (n >= 1_000) return (n / 1_000).toFixed(1) + 'K';
     return String(n);

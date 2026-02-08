@@ -26,7 +26,9 @@ export class OnChainAgent extends BaseAgent {
             result.token.liquidity_usd || 0,
             result.token.age_hours
           );
-          if (result.signal_strength >= 5) {
+          // Lower threshold for young tokens — catch early gems
+          const minStrength = (result.token.age_hours || 999) < 48 ? 4 : 5;
+          if (result.signal_strength >= minStrength) {
             result.reasoning = this._buildReasoning(result);
             result.risks = this._assessRisks(result);
             signals.push(result);

@@ -106,9 +106,15 @@ export class JudgeAgent extends BaseAgent {
       const isLargeCap = LARGE_CAPS.has(tokenKey);
 
       // Minimum strength to even consider
-      const minStrength = hasMultipleAgents ? 4 : (this.llmApiKey ? 6 : 7);
+      // Large caps need much stronger signals to avoid wasting LLM calls
+      let minStrength;
+      if (isLargeCap) {
+        minStrength = hasMultipleAgents ? 7 : 8;
+      } else {
+        minStrength = hasMultipleAgents ? 4 : (this.llmApiKey ? 6 : 7);
+      }
       if (maxStrength < minStrength) {
-        this.logger.debug(`Skipping ${tokenKey}: strength ${maxStrength} < ${minStrength}`);
+        this.logger.debug(`Skipping ${tokenKey}: strength ${maxStrength} < ${minStrength}${isLargeCap ? ' (largecap)' : ''}`);
         continue;
       }
 
@@ -120,10 +126,10 @@ export class JudgeAgent extends BaseAgent {
         continue;
       }
 
-      // Priority: lowcaps get big boost, large caps get penalized
+      // Priority: lowcaps get big boost, large caps heavily penalized
       let priority = maxStrength + uniqueAgents;
       if (isLargeCap) {
-        priority -= 5; // large caps deprioritized
+        priority -= 10; // large caps heavily deprioritized
       } else {
         priority += 3; // lowcap bonus
       }
@@ -166,8 +172,8 @@ export class JudgeAgent extends BaseAgent {
       const verdict = await this.runDebate(tokenKey, signals);
       evalsThisCycle++;
 
-      // Dynamic threshold: large caps need 9+, others need 7
-      const threshold = isLargeCap ? 9 : this.publishThreshold;
+      // Dynamic threshold: large caps need 10 (practically never), others need 7
+      const threshold = isLargeCap ? 10 : this.publishThreshold;
       if (verdict && verdict.score >= threshold) {
         this._publish(verdict, signals);
       } else {
