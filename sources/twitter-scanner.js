@@ -14,8 +14,10 @@ const TOKEN_MAP = {
 const NITTER_INSTANCES = [
   'xcancel.com',
   'nitter.poast.org',
-  'nitter.privacydev.net',
+  'nitter.net',
 ];
+
+const FETCH_TIMEOUT_MS = 8000;
 
 export class TwitterScannerClient {
   constructor(config = {}) {
@@ -28,6 +30,16 @@ export class TwitterScannerClient {
     this.cache = { data: null, ts: 0 };
     this.seenIds = new Set();
     this.workingInstance = null;
+    this.syndicationWorking = null; // null = untested, true/false
+    this.syndicationDisabledAt = 0;
+    this.nitterFails = 0;
+  }
+
+  _timedFetch(url, opts = {}) {
+    const timeout = new Promise((_, reject) =>
+      setTimeout(() => reject(new Error('timeout')), FETCH_TIMEOUT_MS)
+    );
+    return Promise.race([fetch(url, opts), timeout]);
   }
 
   async scan() {
@@ -36,7 +48,11 @@ export class TwitterScannerClient {
       return this.cache.data;
     }
 
+    this.logger.info(`Scanning ${this.accounts.length} accounts...`);
     const signals = [];
+    let succeeded = 0;
+    let failed = 0;
+
     for (const account of this.accounts) {
       try {
         const tweets = await this._fetchAccount(account);
@@ -47,7 +63,9 @@ export class TwitterScannerClient {
             signals.push(tweet);
           }
         }
+        if (tweets.length > 0) succeeded++;
       } catch (err) {
+        failed++;
         this.logger.error(`@${account} failed: ${err.message}`);
       }
     }
@@ -58,27 +76,119 @@ export class TwitterScannerClient {
     }
 
     this.cache = { data: signals, ts: now };
-    this.logger.info(`Scan complete: ${signals.length} tweets from ${this.accounts.length} accounts`);
+    this.logger.info(`Scan complete: ${signals.length} tweets (${succeeded} accounts OK, ${failed} failed)`);
     return signals;
   }
 
   async _fetchAccount(account) {
-    // Try RSS first (xcancel with Mistique UA), then HTML scraping
+    // Try Twitter syndication API first (no API key needed)
+    const synResult = await this._trySyndication(account);
+    if (synResult && synResult.length > 0) return synResult;
+
+    // Fallback: Nitter RSS
     const rssResult = await this._tryRSS(account);
     if (rssResult && rssResult.length > 0) return rssResult;
 
+    // Fallback: Nitter HTML scraping
     return await this._tryHTMLScrape(account);
   }
 
+  async _trySyndication(account) {
+    // Skip if we already know syndication doesn't work, but retry after 5 min
+    if (this.syndicationWorking === false) {
+      if (this.syndicationDisabledAt && (Date.now() - this.syndicationDisabledAt) > 300_000) {
+        this.logger.info('Syndication cooldown expired, retrying...');
+        this.syndicationWorking = null;
+      } else {
+        return null;
+      }
+    }
+
+    try {
+      const url = `https://syndication.twitter.com/srv/timeline-profile/screen-name/${account}`;
+      const res = await this._timedFetch(url, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+          'Accept': 'text/html,application/xhtml+xml',
+        },
+      });
+      if (!res.ok) {
+        if (this.syndicationWorking === null) {
+          this.logger.info(`Syndication API returned ${res.status}, disabling`);
+          this.syndicationWorking = false; this.syndicationDisabledAt = Date.now();
+        }
+        return null;
+      }
+      const html = await res.text();
+
+      // Extract __NEXT_DATA__ JSON from the HTML page
+      const dataMatch = html.match(/<script\s+id="__NEXT_DATA__"[^>]*>([\s\S]*?)<\/script>/);
+      if (!dataMatch) {
+        if (this.syndicationWorking === null) {
+          this.logger.info('Syndication API: no __NEXT_DATA__ found, disabling');
+          this.syndicationWorking = false; this.syndicationDisabledAt = Date.now();
+        }
+        return null;
+      }
+
+      const nextData = JSON.parse(dataMatch[1]);
+      const entries = nextData?.props?.pageProps?.timeline?.entries || [];
+      const tweets = [];
+
+      for (const entry of entries) {
+        if (entry.type !== 'tweet' || tweets.length >= 10) continue;
+        const t = entry.content?.tweet;
+        if (!t?.full_text) continue;
+
+        const text = t.full_text;
+        const tokens = this._extractTokens(text);
+        if (tokens.length === 0) continue;
+
+        const likes = t.favorite_count || 0;
+        const retweets = t.retweet_count || 0;
+        const score = this._scoreTweet(text, tokens, account, likes, retweets);
+
+        for (const symbol of tokens) {
+          tweets.push({
+            id: t.id_str || t.conversation_id_str || `syn-${tweets.length}`,
+            account,
+            text: text.slice(0, 400),
+            url: `https://x.com/${account}/status/${t.id_str || t.conversation_id_str}`,
+            published_at: t.created_at || '',
+            likes,
+            retweets,
+            token: { name: symbol, symbol },
+            signal_strength: score,
+          });
+        }
+      }
+
+      if (tweets.length > 0) {
+        this.syndicationWorking = true;
+        this.logger.debug(`Syndication OK for @${account}: ${tweets.length} tweets`);
+      }
+      return tweets;
+    } catch (err) {
+      if (this.syndicationWorking === null) {
+        this.logger.info(`Syndication API failed: ${err.message}, trying Nitter`);
+        this.syndicationWorking = false; this.syndicationDisabledAt = Date.now();
+      }
+      return null;
+    }
+  }
+
   async _tryRSS(account) {
+    // Skip Nitter if too many consecutive failures
+    if (this.nitterFails >= 3 && !this.workingInstance) return null;
+
     const instances = this.workingInstance
-      ? [this.workingInstance, ...NITTER_INSTANCES.filter(i => i !== this.workingInstance)]
-      : NITTER_INSTANCES;
+      ? [this.workingInstance]
+      : [NITTER_INSTANCES[0]]; // only try first instance until one works
 
     for (const instance of instances) {
       try {
         const url = `https://${instance}/${account}/rss`;
-        const res = await fetch(url, {
+        const res = await this._timedFetch(url, {
           headers: {
             'User-Agent': instance === 'xcancel.com' ? 'Mistique' : 'AlphaSwarm/1.0',
           },
@@ -90,6 +200,7 @@ export class TwitterScannerClient {
         const tweets = this._parseRSS(xml, account);
         if (tweets.length > 0) {
           this.workingInstance = instance;
+          this.nitterFails = 0;
           this.logger.debug(`RSS working via ${instance} for @${account}`);
           return tweets;
         }
@@ -99,30 +210,46 @@ export class TwitterScannerClient {
   }
 
   async _tryHTMLScrape(account) {
+    // Skip Nitter if too many consecutive failures
+    if (this.nitterFails >= 3 && !this.workingInstance) {
+      if (this.nitterFails === 3) {
+        this.logger.info('Nitter instances all down, disabling Nitter fallback');
+        this.nitterFails = 4; // only log once
+      }
+      return [];
+    }
+
     const instances = this.workingInstance
-      ? [this.workingInstance, ...NITTER_INSTANCES.filter(i => i !== this.workingInstance)]
-      : NITTER_INSTANCES;
+      ? [this.workingInstance]
+      : [NITTER_INSTANCES[0]]; // only try first instance
 
     for (const instance of instances) {
       try {
         const url = `https://${instance}/${account}`;
-        const res = await fetch(url, {
+        const res = await this._timedFetch(url, {
           headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' },
         });
-        if (!res.ok) continue;
+        if (!res.ok) {
+          this.nitterFails++;
+          continue;
+        }
         const html = await res.text();
-        if (!html.includes('tweet-content')) continue;
+        if (!html.includes('tweet-content')) {
+          this.nitterFails++;
+          continue;
+        }
 
         const tweets = this._parseHTML(html, account);
         if (tweets.length > 0) {
           this.workingInstance = instance;
+          this.nitterFails = 0;
           this.logger.debug(`HTML scrape working via ${instance} for @${account}`);
           return tweets;
         }
-      } catch (_e) {}
+      } catch (_e) {
+        this.nitterFails++;
+      }
     }
-
-    this.logger.debug(`All instances failed for @${account}`);
     return [];
   }
 

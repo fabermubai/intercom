@@ -3,6 +3,13 @@ import { Formatter } from '../utils/formatter.js';
 import { Scoring } from '../utils/scoring.js';
 import { FearGreedClient } from '../sources/fear-greed.js';
 
+// Large/mid caps — require exceptional catalysts, not routine signals
+const LARGE_CAPS = new Set([
+  'BTC', 'ETH', 'BNB', 'XRP', 'SOL', 'ADA', 'DOGE', 'TRX', 'AVAX', 'DOT',
+  'LINK', 'MATIC', 'UNI', 'LTC', 'ATOM', 'XLM', 'NEAR', 'TON', 'HBAR',
+  'ARB', 'OP', 'AAVE', 'SUI', 'APT', 'FIL', 'ICP', 'PEPE', 'SHIB', 'WIF',
+]);
+
 const PERSONAS = {
   onchain: `You are OnChain Scout, an on-chain analyst. You evaluate tokens based ONLY on on-chain data: volume, liquidity, token age, holder distribution, trading patterns. You look for red flags (rug pulls, honeypots, wash trading) but recognize that young tokens with strong volume and liquidity can be early alpha opportunities — age alone is not a disqualifier. Give your verdict in 2-3 sentences max with a conviction score (1-10).`,
 
@@ -16,7 +23,7 @@ const PERSONAS = {
 
   xscout: `You are X Scout, a crypto Twitter analyst. You evaluate tokens based on tweets from whale trackers, influencers, and alpha accounts. You assess the credibility of the source, the engagement metrics (likes, retweets), and whether the signal represents genuine alpha or paid promotion. You watch for coordinated shilling and distinguish real whale movements from noise. Give your verdict in 2-3 sentences max with a conviction score (1-10).`,
 
-  judge: `You are the Judge of AlphaSwarm, an AI-powered crypto alpha scanner. You synthesize arguments from all agents to produce a final verdict. Be objective and weigh arguments for AND against. Remember: early discovery of young tokens with strong fundamentals (volume, liquidity) is valuable alpha — do not penalize tokens simply for being new. You MUST respond with ONLY a JSON object (no markdown, no extra text) in this format: { "score": <number 1-10>, "verdict": "call" or "skip", "arguments_for": [<string>, ...], "risks": [<string>, ...], "summary": "<one sentence summary>" }`,
+  judge: `You are the Judge of AlphaSwarm, an AI-powered crypto alpha scanner focused on finding HIGH-MULTIPLIER opportunities. You synthesize arguments from all agents to produce a final verdict. Your priority is finding LOWCAP gems with 5-100x potential — young tokens with strong volume, liquidity, and multi-source buzz. For large caps (BTC, ETH, SOL, etc.), only score 8+ if there is an EXCEPTIONAL catalyst (major crash recovery, critical news, extreme fear/greed divergence). For lowcaps, be more generous — early discovery is the goal. You MUST respond with ONLY a JSON object (no markdown, no extra text) in this format: { "score": <number 1-10>, "verdict": "call" or "skip", "arguments_for": [<string>, ...], "risks": [<string>, ...], "summary": "<one sentence summary>" }`,
 };
 
 export class JudgeAgent extends BaseAgent {
@@ -34,6 +41,12 @@ export class JudgeAgent extends BaseAgent {
     this.llmTemperature = config.agents?.agent_temperature || 0.7;
     this.fearGreed = new FearGreedClient(config.sources?.fear_greed || {});
     this.fearGreedCache = null;
+    this.rateLimitedUntil = 0;
+    this.maxEvalsPerCycle = 5;
+    this.llmDelayMs = 2500; // ms between LLM calls to avoid 429
+    this.publishedTokens = new Map(); // token -> last published timestamp
+    this.largecapCooldownMs = 2 * 3_600_000; // 2h cooldown for large caps
+    this.defaultCooldownMs = 30 * 60_000; // 30 min cooldown for others
   }
 
   async scan() {
@@ -81,12 +94,56 @@ export class JudgeAgent extends BaseAgent {
     const grouped = this._groupByToken(this.signalBuffer);
     this.signalBuffer = [];
 
+    // Build candidate list with priority scoring
+    const now = Date.now();
+    const candidates = [];
+    let skippedCooldown = 0;
+
     for (const [tokenKey, signals] of Object.entries(grouped)) {
       const maxStrength = Math.max(...signals.map(s => s.data?.signal_strength || 0));
-      const hasMultipleAgents = new Set(signals.map(s => s.role)).size >= 2;
+      const uniqueAgents = new Set(signals.map(s => s.role)).size;
+      const hasMultipleAgents = uniqueAgents >= 2;
+      const isLargeCap = LARGE_CAPS.has(tokenKey);
+
+      // Minimum strength to even consider
       const minStrength = hasMultipleAgents ? 4 : (this.llmApiKey ? 6 : 7);
       if (maxStrength < minStrength) {
-        this.logger.debug(`Skipping ${tokenKey}: strength ${maxStrength} < ${minStrength} (${signals.length} signals, multi-agent: ${hasMultipleAgents})`);
+        this.logger.debug(`Skipping ${tokenKey}: strength ${maxStrength} < ${minStrength}`);
+        continue;
+      }
+
+      // Cooldown: don't re-evaluate recently published tokens
+      const lastPublished = this.publishedTokens.get(tokenKey) || 0;
+      const cooldown = isLargeCap ? this.largecapCooldownMs : this.defaultCooldownMs;
+      if (lastPublished && (now - lastPublished) < cooldown) {
+        skippedCooldown++;
+        continue;
+      }
+
+      // Priority: lowcaps get big boost, large caps get penalized
+      let priority = maxStrength + uniqueAgents;
+      if (isLargeCap) {
+        priority -= 5; // large caps deprioritized
+      } else {
+        priority += 3; // lowcap bonus
+      }
+
+      candidates.push({ tokenKey, signals, maxStrength, uniqueAgents, isLargeCap, priority });
+    }
+
+    if (skippedCooldown > 0) {
+      this.logger.debug(`${skippedCooldown} tokens skipped (cooldown)`);
+    }
+
+    // Sort by priority descending — lowcaps first
+    candidates.sort((a, b) => b.priority - a.priority);
+
+    let evalsThisCycle = 0;
+    let deferred = 0;
+    for (const { tokenKey, signals, maxStrength, isLargeCap } of candidates) {
+      if (evalsThisCycle >= this.maxEvalsPerCycle) {
+        this.signalBuffer.push(...signals);
+        deferred++;
         continue;
       }
 
@@ -96,15 +153,29 @@ export class JudgeAgent extends BaseAgent {
         break;
       }
 
-      this.logger.info(`Evaluating ${tokenKey} (${signals.length} signals, max strength ${maxStrength})`);
+      // Skip if LLM is rate-limited (429 backoff)
+      if (this.rateLimitedUntil > Date.now()) {
+        this.logger.info(`LLM rate-limited, deferring ${tokenKey} (${Math.round((this.rateLimitedUntil - Date.now()) / 1000)}s remaining)`);
+        this.signalBuffer.push(...signals);
+        continue;
+      }
+
+      const tag = isLargeCap ? 'LARGECAP' : 'LOWCAP';
+      this.logger.info(`Evaluating ${tokenKey} [${tag}] (${signals.length} signals, max strength ${maxStrength}) [${evalsThisCycle + 1}/${this.maxEvalsPerCycle}]`);
 
       const verdict = await this.runDebate(tokenKey, signals);
+      evalsThisCycle++;
 
-      if (verdict && verdict.score >= this.publishThreshold) {
+      // Dynamic threshold: large caps need 9+, others need 7
+      const threshold = isLargeCap ? 9 : this.publishThreshold;
+      if (verdict && verdict.score >= threshold) {
         this._publish(verdict, signals);
       } else {
-        this.logger.info(`${tokenKey}: score ${verdict?.score || 0}/10 - below threshold (${this.publishThreshold})`);
+        this.logger.info(`${tokenKey}: score ${verdict?.score || 0}/10 - below threshold (${threshold}${isLargeCap ? ' largecap' : ''})`);
       }
+    }
+    if (deferred > 0) {
+      this.logger.info(`Cycle eval limit (${this.maxEvalsPerCycle}) reached, ${deferred} tokens deferred to next cycle`);
     }
   }
 
@@ -220,6 +291,15 @@ export class JudgeAgent extends BaseAgent {
       return this._heuristicResponse(userPrompt);
     }
 
+    // Skip if rate-limited
+    if (this.rateLimitedUntil > Date.now()) {
+      this.logger.debug('LLM rate-limited, using heuristic');
+      return this._heuristicResponse(userPrompt);
+    }
+
+    // Throttle: wait between calls to avoid hitting rate limit
+    await new Promise(r => setTimeout(r, this.llmDelayMs));
+
     try {
       const body = this._sanitizeJsonBody(JSON.stringify({
         model: this.llmModel,
@@ -241,9 +321,18 @@ export class JudgeAgent extends BaseAgent {
 
       if (!res.ok) {
         const errText = await res.text();
+        // Handle rate limit (429) with backoff
+        if (res.status === 429) {
+          const retryAfter = parseInt(res.headers?.get?.('retry-after') || '60');
+          this.rateLimitedUntil = Date.now() + (retryAfter * 1000);
+          this.logger.warn(`LLM rate limited (429), backing off ${retryAfter}s`);
+          return this._heuristicResponse(userPrompt);
+        }
         throw new Error(`HTTP ${res.status}: ${errText.slice(0, 200)}`);
       }
 
+      // Successful call — clear any rate limit
+      this.rateLimitedUntil = 0;
       const data = await res.json();
       return data.content?.[0]?.text || '';
     } catch (err) {
@@ -299,7 +388,9 @@ export class JudgeAgent extends BaseAgent {
     const formattedCall = Formatter.formatAlphaCall(verdict, signals);
     this.publishCall(formattedCall);
     this.callHistory.push({ timestamp: Date.now(), verdict });
-    this.logger.info(`PUBLISHED: ${verdict.token} - Score ${verdict.score}/10`);
+    this.publishedTokens.set(verdict.token, Date.now());
+    const tag = LARGE_CAPS.has(verdict.token) ? 'LARGECAP' : 'LOWCAP';
+    this.logger.info(`PUBLISHED [${tag}]: ${verdict.token} - Score ${verdict.score}/10`);
 
     for (const fn of this.callListeners) {
       try {
@@ -325,7 +416,8 @@ export class JudgeAgent extends BaseAgent {
   }
 
   _buildContext(tokenKey, signals) {
-    let ctx = `Token under evaluation: ${tokenKey}\n`;
+    const isLargeCap = LARGE_CAPS.has(tokenKey);
+    let ctx = `Token under evaluation: ${tokenKey} [${isLargeCap ? 'LARGE CAP — requires exceptional catalyst' : 'LOW/MID CAP — high multiplier potential'}]\n`;
     if (this.fearGreedCache) {
       ctx += `\nMarket Macro: Fear & Greed Index = ${this.fearGreedCache.value}/100 (${this.fearGreedCache.label})\n`;
     }

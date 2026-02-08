@@ -13,15 +13,17 @@ Built for the [Intercom Vibe Competition](https://github.com/Trac-Systems/interc
 ## How It Works
 
 ```
-  DexScreener   CoinGecko   RSS Feeds   Telegram/Reddit/X
-       |             |            |           |
-       v             v            v           v
-  +-----------+ +-----------+ +---------------+
-  | OnChain   | | News      | | Sentiment     |
-  | Scout     | | Hawk      | | Analyst       |
-  +-----------+ +-----------+ +---------------+
-       |             |            |
-       v             v            v
+  DexScreener  CoinGecko  RSS Feeds  Telegram  Reddit  X/Twitter
+       |           |          |          |         |        |
+       v           v          v          v         v        v
+  +---------+ +--------+ +---------+ +--------+ +------+ +------+
+  | OnChain | | News   | |Sentiment| |Telegram| |Reddit| |  X   |
+  | Scout   | | Hawk   | |Analyst  | | Scout  | |Scout | |Scout |
+  +---------+ +--------+ +---------+ +--------+ +------+ +------+
+       |           |          |          |         |        |
+       +-----+-----+----+-----+----+-----+--------+--------+
+             |                |
+             v                v
   +------------------------------------+
   | Debate Channel (alphaswarm-debate) |
   | Agents exchange signals, argue,    |
@@ -35,14 +37,14 @@ Built for the [Intercom Vibe Competition](https://github.com/Trac-Systems/interc
           | Score 1-10     |
           +----------------+
                    |
-        score >= 7 |
+     lowcap >= 7   |  largecap >= 9
                    v
      +-------------+-------------+-------------+
      |                           |             |
      v                           v             v
 +------------------+    +------------+  +----------+
 | Public Channel   |    | Telegram   |  | X/Twitter|
-| 0000alphaswarm   |    | (optional) |  | (optional|
+| 0000alphaswarm   |    | (optional) |  | (optional)|
 +------------------+    +------------+  +----------+
 ```
 
@@ -52,18 +54,23 @@ Built for the [Intercom Vibe Competition](https://github.com/Trac-Systems/interc
 |-------|------|-------------|
 | **OnChain Scout** | Detects volume spikes, new tokens, price movements | DexScreener, CoinGecko |
 | **News Hawk** | Detects news catalysts (listings, partnerships, hacks) | RSS feeds |
-| **Sentiment Analyst** | Analyzes community sentiment shifts and trends | CoinGecko trending |
+| **Sentiment Analyst** | Analyzes community sentiment shifts and Fear & Greed Index | CoinGecko trending, Alternative.me |
+| **Telegram Scout** | Monitors crypto Telegram channels for alpha signals | Telegram channels (no bot token needed) |
+| **Reddit Scout** | Scans crypto subreddits for trending tokens and discussions | Reddit JSON API |
+| **X Scout** | Tracks crypto influencer tweets for whale alerts and calls | Twitter Syndication API (no API key needed) |
 | **Judge** | Orchestrates LLM debate, scores opportunities, publishes calls | Anthropic API (Claude) |
 
 ### The Debate
 
 The debate is visible on the `alphaswarm-debate` Intercom sidechannel. Each cycle:
 
-1. Scanner agents detect signals and broadcast them to the debate channel
+1. All 6 scanner agents detect signals and broadcast them to the debate channel
 2. The Judge collects signals and groups them by token
-3. If signals are strong enough, the Judge asks each agent persona (via LLM) for their verdict
-4. After 2 rounds of debate, the Judge synthesizes a final verdict with a conviction score (1-10)
-5. If score >= 7, the call is published to the public channel `0000alphaswarm`
+3. Tokens are prioritized: lowcap gems first, large caps deprioritized (focus on high-multiplier opportunities)
+4. The Judge asks each agent persona (via LLM) for their verdict in a multi-round debate
+5. After 2 rounds of debate, the Judge synthesizes a final verdict with a conviction score (1-10)
+6. Lowcaps: published if score >= 7 | Large caps (BTC, ETH, etc.): published only if score >= 9
+7. Published calls go to the public channel `0000alphaswarm` + optional Telegram/X relay
 
 ---
 
@@ -151,11 +158,18 @@ alphaswarm/
 │   ├── onchain-agent.js        # On-chain data scanner
 │   ├── news-agent.js           # News scanner
 │   ├── sentiment-agent.js      # Sentiment analyzer
+│   ├── telegram-agent.js       # Telegram channel scanner
+│   ├── reddit-agent.js         # Reddit subreddit scanner
+│   ├── twitter-scan-agent.js   # X/Twitter influencer scanner
 │   └── judge-agent.js          # Debate orchestrator + publisher
 ├── sources/
 │   ├── dexscreener.js          # DexScreener API client
 │   ├── coingecko.js            # CoinGecko API client
-│   └── rss.js                  # RSS feed parser
+│   ├── rss.js                  # RSS feed parser
+│   ├── fear-greed.js           # Fear & Greed Index client
+│   ├── telegram-channels.js    # Telegram channel scraper
+│   ├── reddit.js               # Reddit JSON API client
+│   └── twitter-scanner.js      # Twitter Syndication API client
 ├── relay/
 │   ├── telegram-bot.js         # Telegram relay bot
 │   └── twitter-bot.js          # X/Twitter relay (OAuth 1.0a)
@@ -190,7 +204,7 @@ alphaswarm/
 - **Revenue share:** Signal contributors earn a share of collected TNK
 
 ### Planned features
-- More data sources (LunarCrush, Telegram KOL channels)
+- More data sources (LunarCrush, on-chain whale wallets)
 - Call performance tracking (win rate, avg ROI)
 - On-chain reputation scoring via Trac contract
 - Historical call database with backtesting
