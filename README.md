@@ -13,7 +13,7 @@ Built for the [Intercom Vibe Competition](https://github.com/Trac-Systems/interc
 ## How It Works
 
 ```
-  DexScreener   CryptoPanic   CoinGecko   RSS Feeds
+  DexScreener   CoinGecko   RSS Feeds   Telegram/Reddit/X
        |             |            |           |
        v             v            v           v
   +-----------+ +-----------+ +---------------+
@@ -51,8 +51,8 @@ Built for the [Intercom Vibe Competition](https://github.com/Trac-Systems/interc
 | Agent | Role | Data Sources |
 |-------|------|-------------|
 | **OnChain Scout** | Detects volume spikes, new tokens, price movements | DexScreener, CoinGecko |
-| **News Hawk** | Detects news catalysts (listings, partnerships, hacks) | CryptoPanic, RSS feeds |
-| **Sentiment Analyst** | Analyzes community sentiment shifts and trends | CryptoPanic votes, CoinGecko trending |
+| **News Hawk** | Detects news catalysts (listings, partnerships, hacks) | RSS feeds |
+| **Sentiment Analyst** | Analyzes community sentiment shifts and trends | CoinGecko trending |
 | **Judge** | Orchestrates LLM debate, scores opportunities, publishes calls | Anthropic API (Claude) |
 
 ### The Debate
@@ -95,7 +95,6 @@ Edit `config.json`:
 
 | Key | Required | Description |
 |-----|----------|-------------|
-| `sources.cryptopanic.api_key` | Optional | Free API key from [cryptopanic.com/developers/api/](https://cryptopanic.com/developers/api/) |
 | `agents.llm_api_key` | Optional | Anthropic API key for LLM debate (without it, uses heuristic scoring) |
 | `telegram.bot_token` | Optional | Telegram bot token from @BotFather |
 | `telegram.channel_id` | Optional | Telegram channel to post calls |
@@ -156,7 +155,6 @@ alphaswarm/
 ├── sources/
 │   ├── dexscreener.js          # DexScreener API client
 │   ├── coingecko.js            # CoinGecko API client
-│   ├── cryptopanic.js          # CryptoPanic API client
 │   └── rss.js                  # RSS feed parser
 ├── relay/
 │   ├── telegram-bot.js         # Telegram relay bot

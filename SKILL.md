@@ -735,7 +735,6 @@ pear run . store1
 
 | Key | Required | Description |
 |-----|----------|-------------|
-| `sources.cryptopanic.api_key` | Optional | CryptoPanic free API key |
 | `agents.llm_api_key` | Optional | Anthropic API key for LLM debate |
 | `telegram.bot_token` | Optional | Telegram bot token |
 | `telegram.channel_id` | Optional | Telegram channel for calls |

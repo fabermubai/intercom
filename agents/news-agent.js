@@ -1,5 +1,4 @@
 import { BaseAgent } from './base-agent.js';
-import { CryptoPanicClient } from '../sources/cryptopanic.js';
 import { RSSClient } from '../sources/rss.js';
 import { Scoring } from '../utils/scoring.js';
 
@@ -30,49 +29,12 @@ function extractTokenSymbol(text) {
 export class NewsAgent extends BaseAgent {
   constructor(peer, config = {}) {
     super('News Hawk', 'news', peer, config);
-    this.cryptopanic = new CryptoPanicClient(config.sources?.cryptopanic || {});
     this.rss = new RSSClient(config.sources?.rss || {});
     this.seenUrls = new Set();
   }
 
   async scan() {
     const signals = [];
-
-    // CryptoPanic scan
-    try {
-      if (this.config.sources?.cryptopanic?.api_key) {
-        const cpResults = await this.cryptopanic.scan();
-        for (const post of cpResults) {
-          if (!this.seenUrls.has(post.url)) {
-            this.seenUrls.add(post.url);
-            const strength = Scoring.newsScore(post.sentiment, post.vote_count, post.source);
-            if (strength >= 5) {
-              signals.push({
-                source: 'cryptopanic',
-                type: 'breaking_news',
-                token: {
-                  name: post.tokens?.[0]?.title || post.title.slice(0, 30),
-                  symbol: post.tokens?.[0]?.code || '',
-                  related_tokens: post.tokens?.map(t => t.code) || [],
-                },
-                news: {
-                  title: post.title,
-                  source: post.source,
-                  url: post.url,
-                  sentiment: post.sentiment,
-                  votes: post.votes,
-                },
-                signal_strength: strength,
-                reasoning: `${post.sentiment} news from ${post.source}: "${post.title}" (${post.vote_count} votes)`,
-                risks: this._assessNewsRisks(post),
-              });
-            }
-          }
-        }
-      }
-    } catch (err) {
-      this.logger.error(`CryptoPanic scan failed: ${err.message}`);
-    }
 
     // RSS scan
     try {
@@ -121,11 +83,4 @@ export class NewsAgent extends BaseAgent {
     };
   }
 
-  _assessNewsRisks(post) {
-    const risks = [];
-    if (post.vote_count < 10) risks.push('Low community engagement');
-    if (post.sentiment === 'neutral') risks.push('Ambiguous sentiment');
-    if (!post.tokens || post.tokens.length === 0) risks.push('No specific token identified');
-    return risks;
-  }
 }

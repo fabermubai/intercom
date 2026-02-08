@@ -15,12 +15,6 @@
       "min_liquidity_usd": 10000,
       "max_age_hours": 24
     },
-    "cryptopanic": {
-      "enabled": true,
-      "api_key": "YOUR_CRYPTOPANIC_API_KEY",
-      "categories": ["news", "media"],
-      "min_votes": 3
-    },
     "coingecko": {
       "enabled": true,
       "watch_trending": true,

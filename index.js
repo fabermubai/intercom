@@ -550,12 +550,9 @@ sidechannel
     const judgeAgent = new JudgeAgent(peer, alphaswarmConfig);
     const scannerAgents = [onchainAgent, newsAgent];
 
-    // Add sentiment agent if CryptoPanic API key is configured
-    if (alphaswarmConfig.sources?.cryptopanic?.api_key) {
-      const sentimentAgent = new SentimentAgent(peer, alphaswarmConfig);
-      scannerAgents.push(sentimentAgent);
-      console.log('[AlphaSwarm] Sentiment agent enabled');
-    }
+    const sentimentAgent = new SentimentAgent(peer, alphaswarmConfig);
+    scannerAgents.push(sentimentAgent);
+    console.log('[AlphaSwarm] Sentiment agent enabled');
 
     // Add Telegram channel scanner if configured
     if (alphaswarmConfig.sources?.telegram_channels?.enabled) {
