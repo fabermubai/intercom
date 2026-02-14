@@ -41,6 +41,16 @@
       "limit": 15,
       "cache_ttl_seconds": 180
     },
+    "pumpfun": {
+      "enabled": true,
+      "cache_ttl_seconds": 60,
+      "min_market_cap_sol": 1
+    },
+    "gmgn": {
+      "enabled": true,
+      "cache_ttl_seconds": 120,
+      "limit": 20
+    },
     "fear_greed": {
       "enabled": true,
       "cache_ttl_seconds": 300

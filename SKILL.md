@@ -762,7 +762,7 @@ Works without any API keys (DexScreener + CoinGecko free APIs + heuristic scorin
 
 | Agent | Sources | API Key Required |
 |-------|---------|-----------------|
-| OnChain Scout | DexScreener, CoinGecko | No (free APIs) |
+| OnChain Scout | DexScreener, CoinGecko, Pump.fun, GMGN | No (free APIs) |
 | News Hawk | CoinTelegraph, TheBlock, Decrypt RSS | No |
 | Sentiment Analyst | CoinGecko trending, Alternative.me Fear & Greed | No |
 | Telegram Scout | Public Telegram channels | No |

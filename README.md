@@ -13,9 +13,9 @@ Built for the [Intercom Vibe Competition](https://github.com/Trac-Systems/interc
 ## How It Works
 
 ```
-  DexScreener  CoinGecko  RSS Feeds  Telegram  Reddit  X/Twitter
-       |           |          |          |         |        |
-       v           v          v          v         v        v
+  DexScreener  CoinGecko  Pump.fun  GMGN  RSS  Telegram  Reddit  X/Twitter
+       |           |          |       |     |      |         |        |
+       v           v          v       v     v      v         v        v
   +---------+ +--------+ +---------+ +--------+ +------+ +------+
   | OnChain | | News   | |Sentiment| |Telegram| |Reddit| |  X   |
   | Scout   | | Hawk   | |Analyst  | | Scout  | |Scout | |Scout |
@@ -52,7 +52,7 @@ Built for the [Intercom Vibe Competition](https://github.com/Trac-Systems/interc
 
 | Agent | Role | Data Sources |
 |-------|------|-------------|
-| **OnChain Scout** | Detects volume spikes, new tokens, price movements | DexScreener, CoinGecko |
+| **OnChain Scout** | Detects volume spikes, new tokens, price movements | DexScreener, CoinGecko, Pump.fun, GMGN |
 | **News Hawk** | Detects news catalysts (listings, partnerships, hacks) | RSS feeds |
 | **Sentiment Analyst** | Analyzes community sentiment shifts and Fear & Greed Index | CoinGecko trending, Alternative.me |
 | **Telegram Scout** | Monitors crypto Telegram channels for alpha signals | Telegram channels (no bot token needed) |
@@ -169,6 +169,8 @@ alphaswarm/
 ├── sources/
 │   ├── dexscreener.js          # DexScreener API client
 │   ├── coingecko.js            # CoinGecko API client
+│   ├── pumpfun.js              # Pump.fun new launches client
+│   ├── gmgn.js                 # GMGN trending tokens client
 │   ├── rss.js                  # RSS feed parser
 │   ├── fear-greed.js           # Fear & Greed Index client
 │   ├── telegram-channels.js    # Telegram channel scraper
