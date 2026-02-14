@@ -45,9 +45,12 @@ export class JudgeAgent extends BaseAgent {
     this.callHistory = [];
     this.callListeners = [];
     this.watchlistListeners = [];
+    this.llmProvider = config.agents?.llm_provider || 'anthropic';
     this.llmApiKey = config.agents?.llm_api_key || '';
+    this.llmBaseUrl = config.agents?.llm_base_url || 'https://api.anthropic.com';
     this.llmModel = config.agents?.llm_model || 'claude-sonnet-4-20250514';
     this.llmTemperature = config.agents?.agent_temperature || 0.7;
+    this.llmMaxTokens = this.llmProvider === 'local' ? 256 : 512;
     this.fearGreed = new FearGreedClient(config.sources?.fear_greed || {});
     this.fearGreedCache = null;
     this.rateLimitedUntil = 0;
@@ -333,13 +336,14 @@ export class JudgeAgent extends BaseAgent {
     try {
       const body = this._sanitizeJsonBody(JSON.stringify({
         model: this.llmModel,
-        max_tokens: 512,
+        max_tokens: this.llmMaxTokens,
         temperature: this.llmTemperature,
         system: this._sanitize(systemPrompt),
         messages: [{ role: 'user', content: this._sanitize(userPrompt) }],
       }));
 
-      const res = await fetch('https://api.anthropic.com/v1/messages', {
+      const apiUrl = `${this.llmBaseUrl}/v1/messages`;
+      const res = await fetch(apiUrl, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

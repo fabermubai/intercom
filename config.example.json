@@ -53,8 +53,10 @@
   },
   "agents": {
     "llm_provider": "anthropic",
+    "llm_base_url": "https://api.anthropic.com",
     "llm_api_key": "YOUR_ANTHROPIC_API_KEY",
     "llm_model": "claude-sonnet-4-20250514",
+    "_comment_local": "For LM Studio: provider=local, base_url=http://localhost:1234, api_key=lm-studio, model=qwen/qwen3-8b",
     "debate_rounds": 2,
     "agent_temperature": 0.7
   },
