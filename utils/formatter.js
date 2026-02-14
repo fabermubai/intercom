@@ -10,9 +10,9 @@ export class Formatter {
     )];
 
     const scoreBar = Formatter._scoreBar(score);
-    const scoreLabel = score >= 8 ? 'STRONG' : score >= 7 ? 'MODERATE' : 'WEAK';
+    const scoreLabel = score >= 9 ? 'HIGH CONVICTION' : score >= 7 ? 'MODERATE' : score >= 5 ? 'DEGEN PLAY' : 'SPECULATIVE';
 
-    let msg = `ALPHASWARM CALL\n\n`;
+    let msg = `ALPHASWARM CALL [${scoreLabel}]\n\n`;
     if (token.symbol) msg += `$${token.symbol}`;
     if (token.chain) msg += ` | ${token.chain}`;
     msg += '\n';
@@ -77,10 +77,16 @@ export class Formatter {
     )];
 
     const scoreBar = Formatter._scoreBar(score);
-    const scoreEmoji = score >= 9 ? '\u{1F525}' : score >= 8 ? '\u{1F7E2}' : score >= 7 ? '\u{1F7E1}' : '\u{1F7E0}';
     const chainEmoji = Formatter._chainEmoji(token.chain);
 
-    let msg = `\u{1F4E1} *ALPHASWARM CALL* ${scoreEmoji}\n`;
+    // Risk tier system
+    let tierLabel, tierEmoji;
+    if (score >= 9) { tierLabel = 'HIGH CONVICTION'; tierEmoji = '\u{1F525}'; }
+    else if (score >= 7) { tierLabel = 'MODERATE'; tierEmoji = '\u{1F7E2}'; }
+    else if (score >= 5) { tierLabel = 'DEGEN PLAY'; tierEmoji = '\u{1F3B0}'; }
+    else { tierLabel = 'SPECULATIVE'; tierEmoji = '\u{1F7E0}'; }
+
+    let msg = `\u{1F4E1} *ALPHASWARM CALL* ${tierEmoji} _${tierLabel}_\n`;
     msg += `\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n\n`;
 
     if (token.symbol) msg += `\u{1F4B0} *$${token.symbol}*`;
@@ -106,6 +112,13 @@ export class Formatter {
     if (risks.length > 0) {
       msg += '\n\u26A0\uFE0F *Risks:*\n';
       for (const r of risks) msg += `  \u2022 ${r}\n`;
+    }
+
+    // Risk disclaimer for degen plays (score 5-6)
+    if (score <= 6) {
+      msg += `\n\u{1F6A8} *HIGH RISK:* Score *${score}/10* — this is a speculative degen play. `;
+      msg += `Potential for high multiples but also high chance of loss. `;
+      msg += `*Small position only. DYOR. NFA.*\n`;
     }
 
     // DexScreener link

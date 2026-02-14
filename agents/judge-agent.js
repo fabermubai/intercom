@@ -13,7 +13,7 @@ const KNOWN_LARGE_CAPS = new Set([
 const LARGE_CAP_THRESHOLD = 100_000_000;
 
 const PERSONAS = {
-  onchain: `You are OnChain Scout, an on-chain analyst. You evaluate tokens based ONLY on on-chain data: volume, liquidity, token age, holder distribution, trading patterns. You look for red flags (rug pulls, honeypots, wash trading) but recognize that young tokens with strong volume and liquidity can be early alpha opportunities — age alone is not a disqualifier. Give your verdict in 2-3 sentences max with a conviction score (1-10).`,
+  onchain: `You are OnChain Scout, an on-chain degen analyst. You evaluate tokens based on on-chain data: volume, liquidity, token age, holder distribution, trading patterns. You look for red flags (rug pulls, honeypots, wash trading) but you are BULLISH on young tokens — a new token (< 24h) with real volume ($50K+) and decent liquidity ($10K+) is a potential gem, not a warning. Age alone is NEVER a disqualifier. Score generously for fresh tokens with strong metrics. Give your verdict in 2-3 sentences max with a conviction score (1-10).`,
 
   news: `You are News Hawk, a crypto news analyst. You evaluate tokens based on news catalysts: listings, partnerships, technical upgrades, regulatory changes. You assess news credibility and potential price impact. Give your verdict in 2-3 sentences max with a conviction score (1-10).`,
 
@@ -25,9 +25,15 @@ const PERSONAS = {
 
   xscout: `You are X Scout, a crypto Twitter analyst. You evaluate tokens based on tweets from whale trackers, influencers, and alpha accounts. You assess the credibility of the source, the engagement metrics (likes, retweets), and whether the signal represents genuine alpha or paid promotion. You watch for coordinated shilling and distinguish real whale movements from noise. Give your verdict in 2-3 sentences max with a conviction score (1-10).`,
 
-  judge: `You are the Judge of AlphaSwarm, an AI-powered crypto alpha scanner focused on finding HIGH-MULTIPLIER opportunities in LOWCAP tokens (under $100M market cap). You synthesize arguments from all agents to produce a final verdict.
+  judge: `You are the Judge of AlphaSwarm, an AI-powered crypto alpha scanner in DEGEN MODE — focused on finding HIGH-MULTIPLIER opportunities in LOWCAP tokens (under $100M market cap). You synthesize arguments from all agents to produce a final verdict.
 
-PRIORITY: Find lowcap gems (under $100M MC) with 5-100x potential — young tokens with strong volume, liquidity, and multi-source buzz. Be generous with lowcaps — early discovery is the goal.
+PRIORITY: Find lowcap gems with 5-100x potential. Be AGGRESSIVE with scoring for lowcaps:
+- Brand new tokens (< 24h old) with strong volume and liquidity: score 6+ even with limited data — early entry IS the alpha
+- Tokens with multi-source buzz (2+ agents): score 5+ minimum
+- Single strong signal from on-chain (volume spike, fresh deploy): score 5+ if volume/liquidity looks real
+- The goal is EARLY DISCOVERY — it's better to call a risky gem early than miss a 50x
+- Score 7+ for tokens with strong fundamentals across multiple signals
+- Score 9+ only for exceptional multi-signal lowcap setups
 
 LARGE CAPS (over $100M MC): Almost NEVER call these. Only score 7+ if ALL of the following: (1) massive price crash (-20%+ in 24h) creating a dip buy opportunity, OR (2) major team/protocol announcement (new chain launch, major partnership, token burn), OR (3) extreme fear/greed divergence. Routine trending or sentiment signals are NOT enough for large caps.
 
@@ -40,6 +46,7 @@ export class JudgeAgent extends BaseAgent {
     this.signalBuffer = [];
     this.agents = [];
     this.publishThreshold = config.alphaswarm?.publish_threshold || 7;
+    this.lowcapThreshold = config.alphaswarm?.lowcap_threshold || 5;
     this.maxCallsPerHour = config.alphaswarm?.max_calls_per_hour || 10;
     this.debateRounds = config.agents?.debate_rounds || 2;
     this.callHistory = [];
@@ -129,11 +136,12 @@ export class JudgeAgent extends BaseAgent {
 
       // Minimum strength to even consider
       // Large caps need much stronger signals to avoid wasting LLM calls
+      // Lowcaps: aggressive — even weak signals from a single agent get evaluated
       let minStrength;
       if (isLargeCap) {
         minStrength = hasMultipleAgents ? 7 : 8;
       } else {
-        minStrength = hasMultipleAgents ? 4 : (this.llmApiKey ? 6 : 7);
+        minStrength = hasMultipleAgents ? 3 : (this.llmApiKey ? 5 : 6);
       }
       if (maxStrength < minStrength) {
         this.logger.debug(`Skipping ${tokenKey}: strength ${maxStrength} < ${minStrength}${isLargeCap ? ' (largecap)' : ''}`);
@@ -196,15 +204,15 @@ export class JudgeAgent extends BaseAgent {
 
       if (!verdict) continue;
 
-      // Dynamic threshold: large caps need 10 (practically never), others need 7
-      const threshold = isLargeCap ? 10 : this.publishThreshold;
+      // Dynamic threshold: large caps need 10 (practically never), lowcaps only need 5
+      const threshold = isLargeCap ? 10 : this.lowcapThreshold;
       if (verdict.score >= threshold) {
         this._publish(verdict, signals);
       } else if (!isLargeCap && maxMarketCap > 0 && maxMarketCap < 1_000_000) {
-        // Radar: only tokens with confirmed MC under $1M
+        // Radar: only tokens with confirmed MC under $1M and score below threshold
         this._publishWatchlist(verdict, signals);
       } else {
-        this.logger.info(`${tokenKey}: score ${verdict.score}/10 - skipped (${isLargeCap ? 'largecap' : `MC $${Math.round(maxMarketCap / 1e6)}M > 1M`})`);
+        this.logger.info(`${tokenKey}: score ${verdict.score}/10 - skipped (${isLargeCap ? 'largecap' : `below threshold`})`);
       }
     }
     if (deferred > 0) {
