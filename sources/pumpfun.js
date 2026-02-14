@@ -12,6 +12,8 @@ export class PumpFunClient {
     this.cacheTtlMs = (config.cache_ttl_seconds || 60) * 1000;
     this.seenMints = new Set();
     this.minMarketCapSol = config.min_market_cap_sol || 1; // minimum MC in SOL
+    this.apiAvailable = true; // set false after 401/403, retried every 10 min
+    this.apiRetryAfter = 0;
   }
 
   async scan() {
@@ -22,6 +24,32 @@ export class PumpFunClient {
       return this.cache.data;
     }
 
+    let signals = [];
+
+    // Try pump.fun API first (may require JWT)
+    if (this.apiAvailable || now > this.apiRetryAfter) {
+      signals = await this._scanPumpApi();
+    }
+
+    // Fallback: DexScreener search for fresh Solana tokens
+    if (signals.length === 0) {
+      signals = await this._scanDexScreenerFallback();
+    }
+
+    // Prune seen mints (keep last 500)
+    if (this.seenMints.size > 500) {
+      const arr = [...this.seenMints];
+      this.seenMints = new Set(arr.slice(-300));
+    }
+
+    this.cache = { data: signals, ts: now };
+    if (signals.length > 0) {
+      this.logger.info(`Found ${signals.length} pump.fun signals`);
+    }
+    return signals;
+  }
+
+  async _scanPumpApi() {
     const signals = [];
 
     // 1. Latest coin (just launched)
@@ -33,7 +61,7 @@ export class PumpFunClient {
         if (token) signals.push({ source: 'pumpfun', type: 'new_launch', token });
       }
     } catch (err) {
-      this.logger.error(`Latest coin fetch failed: ${err.message}`);
+      this.logger.debug(`Latest coin fetch failed: ${err.message}`);
     }
 
     // 2. King of the Hill (hottest token)
@@ -45,7 +73,7 @@ export class PumpFunClient {
         if (token) signals.push({ source: 'pumpfun', type: 'king_of_hill', token });
       }
     } catch (err) {
-      this.logger.error(`King of the Hill fetch failed: ${err.message}`);
+      this.logger.debug(`King of the Hill fetch failed: ${err.message}`);
     }
 
     // 3. Current trending metas
@@ -64,15 +92,61 @@ export class PumpFunClient {
       this.logger.debug(`Metas fetch failed: ${err.message}`);
     }
 
-    // Prune seen mints (keep last 500)
-    if (this.seenMints.size > 500) {
-      const arr = [...this.seenMints];
-      this.seenMints = new Set(arr.slice(-300));
-    }
+    return signals;
+  }
 
-    this.cache = { data: signals, ts: now };
-    if (signals.length > 0) {
-      this.logger.info(`Found ${signals.length} pump.fun signals`);
+  async _scanDexScreenerFallback() {
+    const signals = [];
+    try {
+      this.logger.debug('Fallback: DexScreener latest Solana profiles');
+      const res = await fetch('https://api.dexscreener.com/token-profiles/latest/v1', {
+        headers: { 'Accept': 'application/json' },
+      });
+      if (!res.ok) return signals;
+      const data = await res.json();
+      if (!Array.isArray(data)) return signals;
+
+      const solTokens = data.filter(t => t.chainId === 'solana').slice(0, 15);
+      for (const item of solTokens) {
+        if (!item.tokenAddress || this.seenMints.has(item.tokenAddress)) continue;
+        try {
+          const pairRes = await fetch(`https://api.dexscreener.com/token-pairs/v1/solana/${item.tokenAddress}`);
+          if (!pairRes.ok) continue;
+          const pairs = await pairRes.json();
+          if (!Array.isArray(pairs) || pairs.length === 0) continue;
+          const pair = pairs.sort((a, b) => (b.volume?.h24 || 0) - (a.volume?.h24 || 0))[0];
+          const bt = pair.baseToken || {};
+          const ageHours = (Date.now() - (pair.pairCreatedAt || Date.now())) / 3_600_000;
+          if (ageHours > 24) continue; // only fresh tokens
+
+          this.seenMints.add(item.tokenAddress);
+          const hasSocials = !!(item.links?.length > 0 || item.websites?.length > 0);
+          const graduated = !!(pair.dexId && pair.dexId !== 'pumpfun');
+          signals.push({
+            source: 'pumpfun_dex',
+            type: graduated ? 'graduated' : 'new_token',
+            token: {
+              name: bt.name || 'Unknown',
+              symbol: bt.symbol || '???',
+              chain: 'solana',
+              address: item.tokenAddress,
+              price_usd: parseFloat(pair.priceUsd) || 0,
+              volume_24h: pair.volume?.h24 || 0,
+              liquidity_usd: pair.liquidity?.usd || 0,
+              market_cap: pair.marketCap || pair.fdv || 0,
+              age_hours: Math.round(ageHours * 10) / 10,
+              price_change_1h: pair.priceChange?.h1 || 0,
+              price_change_24h: pair.priceChange?.h24 || 0,
+              has_socials: hasSocials,
+              graduated,
+              reply_count: 0,
+              pair_url: pair.url || `https://dexscreener.com/solana/${item.tokenAddress}`,
+            },
+          });
+        } catch { continue; }
+      }
+    } catch (err) {
+      this.logger.error(`DexScreener fallback failed: ${err.message}`);
     }
     return signals;
   }
@@ -119,7 +193,13 @@ export class PumpFunClient {
     const res = await fetch(url, {
       headers: { 'Accept': 'application/json' },
     });
+    if (res.status === 401 || res.status === 403) {
+      this.apiAvailable = false;
+      this.apiRetryAfter = Date.now() + 600_000; // retry in 10 min
+      throw new Error(`Auth required (${res.status}) — will use DexScreener fallback`);
+    }
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    this.apiAvailable = true; // confirmed working
     return res.json();
   }
 }

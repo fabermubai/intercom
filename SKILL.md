@@ -716,10 +716,10 @@ AlphaSwarm is a multi-agent AI crypto alpha scanner built as an Intercom feature
 
 ### What It Does
 
-1. **6 scanner agents** (OnChain Scout, News Hawk, Sentiment Analyst, Telegram Scout, Reddit Scout, X Scout) scan 7+ data sources every 60 seconds
+1. **6 scanner agents** (OnChain Scout, News Hawk, Sentiment Analyst, Telegram Scout, Reddit Scout, X Scout) scan 9+ data sources every 60 seconds
 2. Signals are broadcast to the `alphaswarm-debate` sidechannel via Intercom P2P
 3. The **Judge agent** collects signals, groups by token, prioritizes lowcap gems, and runs a multi-round LLM debate (Anthropic Claude or local LLM via LM Studio)
-4. **Dynamic thresholds:** lowcaps published if score >= 7/10, large caps (market cap > $100M) only if score >= 9/10
+4. **Degen mode:** lowcaps published if score >= 5/10 (with risk tier disclaimer), large caps (market cap > $100M) only if score >= 9/10
 5. **Radar watchlist:** Microcap tokens (confirmed MC < $1M) that score below threshold are published as "ALPHASWARM RADAR" on Telegram with DYOR disclaimer
 6. Published calls go to `0000alphaswarm` sidechannel + optional Telegram and X/Twitter relay
 
@@ -762,7 +762,7 @@ Works without any API keys (DexScreener + CoinGecko free APIs + heuristic scorin
 
 | Agent | Sources | API Key Required |
 |-------|---------|-----------------|
-| OnChain Scout | DexScreener, CoinGecko, Pump.fun, GMGN | No (free APIs) |
+| OnChain Scout | DexScreener, CoinGecko, Pump.fun, GMGN | No (free APIs, Pump.fun fallback via DexScreener) |
 | News Hawk | CoinTelegraph, TheBlock, Decrypt RSS | No |
 | Sentiment Analyst | CoinGecko trending, Alternative.me Fear & Greed | No |
 | Telegram Scout | Public Telegram channels | No |

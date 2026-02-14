@@ -37,7 +37,7 @@ Built for the [Intercom Vibe Competition](https://github.com/Trac-Systems/interc
           | Score 1-10     |
           +----------------+
                    |
-     lowcap >= 7   |  largecap >= 9
+     lowcap >= 5   |  largecap >= 9
                    v
      +------+------+------+------+
      |      |             |      |
@@ -69,7 +69,7 @@ The debate is visible on the `alphaswarm-debate` Intercom sidechannel. Each cycl
 3. Tokens are prioritized: lowcap gems first, large caps deprioritized (focus on high-multiplier opportunities)
 4. The Judge asks each agent persona (via LLM) for their verdict in a multi-round debate
 5. After 2 rounds of debate, the Judge synthesizes a final verdict with a conviction score (1-10)
-6. **Dynamic thresholds:** Lowcaps published if score >= 7 | Large caps (market cap > $100M) only if score >= 9
+6. **Degen mode:** Lowcaps published if score >= 5 (with risk tier disclaimer) | Large caps (market cap > $100M) only if score >= 9
 7. Published calls go to the public channel `0000alphaswarm` + optional Telegram/X relay
 8. **Radar watchlist:** Microcap tokens (confirmed MC < $1M) that score below threshold are published as "ALPHASWARM RADAR" on Telegram with DYOR disclaimer — potential dip entries to watch
 

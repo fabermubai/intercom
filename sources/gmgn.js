@@ -9,6 +9,8 @@ export class GMGNClient {
     this.cacheTtlMs = (config.cache_ttl_seconds || 120) * 1000;
     this.limit = config.limit || 20;
     this.seenTokens = new Set();
+    this.apiAvailable = true;
+    this.apiRetryAfter = 0; // Cloudflare blocks → backoff 10 min
   }
 
   async scan() {
@@ -17,6 +19,12 @@ export class GMGNClient {
     const now = Date.now();
     if (this.cache.data && (now - this.cache.ts) < this.cacheTtlMs) {
       return this.cache.data;
+    }
+
+    // Skip if Cloudflare blocked us recently
+    if (!this.apiAvailable && Date.now() < this.apiRetryAfter) {
+      this.logger.debug('GMGN blocked by Cloudflare, skipping until retry window');
+      return [];
     }
 
     const signals = [];
@@ -134,7 +142,13 @@ export class GMGNClient {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
       },
     });
+    if (res.status === 403 || res.status === 503) {
+      this.apiAvailable = false;
+      this.apiRetryAfter = Date.now() + 600_000; // retry in 10 min
+      throw new Error(`Cloudflare blocked (${res.status}) — will retry in 10 min`);
+    }
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    this.apiAvailable = true; // confirmed working
     return res.json();
   }
 }
