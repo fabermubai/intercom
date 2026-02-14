@@ -718,9 +718,10 @@ AlphaSwarm is a multi-agent AI crypto alpha scanner built as an Intercom feature
 
 1. **6 scanner agents** (OnChain Scout, News Hawk, Sentiment Analyst, Telegram Scout, Reddit Scout, X Scout) scan 7+ data sources every 60 seconds
 2. Signals are broadcast to the `alphaswarm-debate` sidechannel via Intercom P2P
-3. The **Judge agent** collects signals, groups by token, prioritizes lowcap gems, and runs a multi-round LLM debate (Anthropic Claude)
-4. Dynamic thresholds: lowcaps published if score >= 7/10, large caps (BTC, ETH, SOL, etc.) only if score >= 9/10
-5. Published calls go to `0000alphaswarm` sidechannel + optional Telegram and X/Twitter relay
+3. The **Judge agent** collects signals, groups by token, prioritizes lowcap gems, and runs a multi-round LLM debate (Anthropic Claude or local LLM via LM Studio)
+4. **Dynamic thresholds:** lowcaps published if score >= 7/10, large caps (market cap > $100M) only if score >= 9/10
+5. **Radar watchlist:** Microcap tokens (confirmed MC < $1M) that score below threshold are published as "ALPHASWARM RADAR" on Telegram with DYOR disclaimer
+6. Published calls go to `0000alphaswarm` sidechannel + optional Telegram and X/Twitter relay
 
 ### Installation & Running
 
@@ -736,7 +737,10 @@ pear run . store1
 
 | Key | Required | Description |
 |-----|----------|-------------|
-| `agents.llm_api_key` | Optional | Anthropic API key for LLM debate |
+| `agents.llm_provider` | Optional | `"anthropic"` (default) or `"local"` for LM Studio |
+| `agents.llm_base_url` | Optional | API base URL (`https://api.anthropic.com` or `http://localhost:1234`) |
+| `agents.llm_api_key` | Optional | Anthropic API key (or `"lm-studio"` for local) |
+| `agents.llm_model` | Optional | Model name (e.g. `claude-sonnet-4-20250514` or `qwen/qwen3-8b`) |
 | `telegram.bot_token` | Optional | Telegram bot token from @BotFather |
 | `telegram.channel_id` | Optional | Telegram channel to post calls |
 | `twitter.app_key` | Optional | X/Twitter app key for relay |
@@ -744,7 +748,7 @@ pear run . store1
 | `twitter.access_token` | Optional | X/Twitter access token |
 | `twitter.access_secret` | Optional | X/Twitter access secret |
 
-Works without any API keys (DexScreener + CoinGecko free APIs + heuristic scoring). Adding the Anthropic key enables the full multi-round LLM debate.
+Works without any API keys (DexScreener + CoinGecko free APIs + heuristic scoring). Adding an LLM (Anthropic API or local via LM Studio) enables the full multi-round debate.
 
 ### Terminal Commands
 
@@ -764,6 +768,7 @@ Works without any API keys (DexScreener + CoinGecko free APIs + heuristic scorin
 | Telegram Scout | Public Telegram channels | No |
 | Reddit Scout | r/CryptoMoonShots, r/cryptocurrency, r/SatoshiStreetBets | No |
 | X Scout | Twitter Syndication API + Nitter fallback | No |
+| Judge | Anthropic Claude API or local LLM (LM Studio) | Optional (works with heuristic fallback) |
 
 ### Verification
 

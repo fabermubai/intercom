@@ -39,13 +39,13 @@ Built for the [Intercom Vibe Competition](https://github.com/Trac-Systems/interc
                    |
      lowcap >= 7   |  largecap >= 9
                    v
-     +-------------+-------------+-------------+
-     |                           |             |
-     v                           v             v
-+------------------+    +------------+  +----------+
-| Public Channel   |    | Telegram   |  | X/Twitter|
-| 0000alphaswarm   |    | (optional) |  | (optional)|
-+------------------+    +------------+  +----------+
+     +------+------+------+------+
+     |      |             |      |
+     v      v             v      v
++--------+ +----------+ +----+ +-------+
+| Public | | Telegram | | X  | | Radar |
+| 0000.. | | (opt.)   | |(op)| | <$1M  |
++--------+ +----------+ +----+ +-------+
 ```
 
 ### Agents
@@ -58,7 +58,7 @@ Built for the [Intercom Vibe Competition](https://github.com/Trac-Systems/interc
 | **Telegram Scout** | Monitors crypto Telegram channels for alpha signals | Telegram channels (no bot token needed) |
 | **Reddit Scout** | Scans crypto subreddits for trending tokens and discussions | Reddit JSON API |
 | **X Scout** | Tracks crypto influencer tweets for whale alerts and calls | Twitter Syndication API (no API key needed) |
-| **Judge** | Orchestrates LLM debate, scores opportunities, publishes calls | Anthropic API (Claude) |
+| **Judge** | Orchestrates LLM debate, scores opportunities, publishes calls | Anthropic API (Claude) or local LLM (LM Studio) |
 
 ### The Debate
 
@@ -69,8 +69,9 @@ The debate is visible on the `alphaswarm-debate` Intercom sidechannel. Each cycl
 3. Tokens are prioritized: lowcap gems first, large caps deprioritized (focus on high-multiplier opportunities)
 4. The Judge asks each agent persona (via LLM) for their verdict in a multi-round debate
 5. After 2 rounds of debate, the Judge synthesizes a final verdict with a conviction score (1-10)
-6. Lowcaps: published if score >= 7 | Large caps (BTC, ETH, etc.): published only if score >= 9
+6. **Dynamic thresholds:** Lowcaps published if score >= 7 | Large caps (market cap > $100M) only if score >= 9
 7. Published calls go to the public channel `0000alphaswarm` + optional Telegram/X relay
+8. **Radar watchlist:** Microcap tokens (confirmed MC < $1M) that score below threshold are published as "ALPHASWARM RADAR" on Telegram with DYOR disclaimer — potential dip entries to watch
 
 ---
 
@@ -102,7 +103,10 @@ Edit `config.json`:
 
 | Key | Required | Description |
 |-----|----------|-------------|
-| `agents.llm_api_key` | Optional | Anthropic API key for LLM debate (without it, uses heuristic scoring) |
+| `agents.llm_provider` | Optional | `"anthropic"` (default) or `"local"` for LM Studio |
+| `agents.llm_base_url` | Optional | API base URL (`https://api.anthropic.com` or `http://localhost:1234` for LM Studio) |
+| `agents.llm_api_key` | Optional | Anthropic API key (or `"lm-studio"` for local) — without it, uses heuristic scoring |
+| `agents.llm_model` | Optional | Model name (e.g. `claude-sonnet-4-20250514` or `qwen/qwen3-8b`) |
 | `telegram.bot_token` | Optional | Telegram bot token from @BotFather |
 | `telegram.channel_id` | Optional | Telegram channel to post calls |
 | `twitter.app_key` | Optional | X/Twitter app key from [developer.x.com](https://developer.x.com) |
@@ -110,7 +114,7 @@ Edit `config.json`:
 | `twitter.access_token` | Optional | X/Twitter access token |
 | `twitter.access_secret` | Optional | X/Twitter access secret |
 
-The system works without any API keys (using DexScreener + CoinGecko free APIs + heuristic scoring), but adding the Anthropic key enables the full LLM debate experience.
+The system works without any API keys (using DexScreener + CoinGecko free APIs + heuristic scoring). Adding an LLM (Anthropic API or local via LM Studio) enables the full multi-round debate experience.
 
 ### Run
 
