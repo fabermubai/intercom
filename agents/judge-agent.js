@@ -62,7 +62,7 @@ export class JudgeAgent extends BaseAgent {
     this.fearGreedCache = null;
     this.rateLimitedUntil = 0;
     this.maxEvalsPerCycle = 5;
-    this.llmDelayMs = 2500; // ms between LLM calls to avoid 429
+    this.llmDelayMs = this.llmProvider === 'local' ? 500 : 2500; // local = no rate limit
     this.publishedTokens = new Map(); // token -> last published timestamp
     this.largecapCooldownMs = 2 * 3_600_000; // 2h cooldown for large caps
     this.defaultCooldownMs = 30 * 60_000; // 30 min cooldown for others
@@ -341,6 +341,8 @@ export class JudgeAgent extends BaseAgent {
     // Throttle: wait between calls to avoid hitting rate limit
     await new Promise(r => setTimeout(r, this.llmDelayMs));
 
+    const callStart = Date.now();
+    const timeoutMs = this.llmProvider === 'local' ? 30_000 : 60_000;
     try {
       const body = this._sanitizeJsonBody(JSON.stringify({
         model: this.llmModel,
@@ -351,7 +353,10 @@ export class JudgeAgent extends BaseAgent {
       }));
 
       const apiUrl = `${this.llmBaseUrl}/v1/messages`;
-      const res = await fetch(apiUrl, {
+      this.logger.info(`LLM call → ${this.llmModel} ...`);
+
+      // Use Promise.race for timeout (bare-fetch may not support AbortController)
+      const fetchPromise = fetch(apiUrl, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -360,6 +365,10 @@ export class JudgeAgent extends BaseAgent {
         },
         body,
       });
+      const timeoutPromise = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error(`LLM timeout (${timeoutMs}ms)`)), timeoutMs)
+      );
+      const res = await Promise.race([fetchPromise, timeoutPromise]);
 
       if (!res.ok) {
         const errText = await res.text();
@@ -376,9 +385,11 @@ export class JudgeAgent extends BaseAgent {
       // Successful call — clear any rate limit
       this.rateLimitedUntil = 0;
       const data = await res.json();
+      this.logger.info(`LLM OK (${Date.now() - callStart}ms)`);
       return data.content?.[0]?.text || '';
     } catch (err) {
-      this.logger.error(`LLM call failed: ${err.message}`);
+      const elapsed = Date.now() - callStart;
+      this.logger.error(`LLM failed (${elapsed}ms): ${err.message}`);
       return this._heuristicResponse(userPrompt);
     }
   }
