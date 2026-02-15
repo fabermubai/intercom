@@ -153,6 +153,33 @@ export class DexScreenerClient {
     return 'trending';
   }
 
+  async searchToken(query) {
+    const q = query.trim();
+    // Detect contract address: 0x... (EVM) or base58 32+ chars (Solana)
+    const isAddress = /^0x[a-fA-F0-9]{40,}$/.test(q) || (/^[1-9A-HJ-NP-Za-km-z]{32,}$/.test(q) && !q.includes(' '));
+
+    // If address, try direct lookup on all watched chains first
+    if (isAddress) {
+      for (const chain of this.chains) {
+        try {
+          const pair = await this._fetchTokenPairs(chain, q);
+          if (pair) return this._normalizePair(pair, chain);
+        } catch {}
+      }
+    }
+
+    // Fallback to search (works for both symbols and addresses)
+    try {
+      const data = await this._fetch(`/latest/dex/search?q=${encodeURIComponent(q)}`);
+      if (!data?.pairs?.length) return null;
+      const best = data.pairs.sort((a, b) => (b.volume?.h24 || 0) - (a.volume?.h24 || 0))[0];
+      return this._normalizePair(best, best.chainId);
+    } catch (err) {
+      this.logger.error(`Search failed for "${q}": ${err.message}`);
+      return null;
+    }
+  }
+
   async _fetch(endpoint) {
     await this._rateLimit();
     const url = `${this.baseUrl}${endpoint}`;

@@ -12,18 +12,27 @@ const KNOWN_LARGE_CAPS = new Set([
 // Dynamic large cap threshold: any token with MC > 100M is treated as large cap
 const LARGE_CAP_THRESHOLD = 100_000_000;
 
+const PERSONA_NAMES = {
+  onchain: 'Brody the Chain Dog',
+  news: 'Mika the Insider',
+  sentiment: 'Vibe Check Victor',
+  telegram: 'TG Phantom',
+  reddit: 'Ape Lord',
+  xscout: 'X Hawk',
+};
+
 const PERSONAS = {
-  onchain: `You are OnChain Scout, an on-chain degen analyst. You evaluate tokens based on on-chain data: volume, liquidity, token age, holder distribution, trading patterns. You look for red flags (rug pulls, honeypots, wash trading) but you are BULLISH on young tokens — a new token (< 24h) with real volume ($50K+) and decent liquidity ($10K+) is a potential gem, not a warning. Age alone is NEVER a disqualifier. Score generously for fresh tokens with strong metrics. Give your verdict in 2-3 sentences max with a conviction score (1-10).`,
+  onchain: `You are "Brody the Chain Dog" — a street-smart on-chain degen who lives on Etherscan and Solscan. You talk like a crypto bro, use slang ("ser", "ngmi", "lfg"), and get hyped about fresh deploys. You evaluate tokens based on on-chain data: volume, liquidity, token age, holder distribution, trading patterns. You look for red flags (rug pulls, honeypots, wash trading) but you are BULLISH on young tokens — a new token (< 24h) with real volume ($50K+) and decent liquidity ($10K+) is a potential gem, not a warning. Age alone is NEVER a disqualifier. Score generously for fresh tokens with strong metrics. Give your verdict in 2-3 punchy sentences with personality and a conviction score (1-10).`,
 
-  news: `You are News Hawk, a crypto news analyst. You evaluate tokens based on news catalysts: listings, partnerships, technical upgrades, regulatory changes. You assess news credibility and potential price impact. Give your verdict in 2-3 sentences max with a conviction score (1-10).`,
+  news: `You are "Mika the Insider" — a sharp, well-connected crypto journalist who always has the scoop before everyone else. You speak with confidence and drop alpha like it's nothing. You evaluate tokens based on news catalysts: listings, partnerships, technical upgrades, regulatory changes. You assess news credibility and potential price impact. Give your verdict in 2-3 punchy sentences with personality and a conviction score (1-10).`,
 
-  sentiment: `You are Sentiment Analyst, a market sentiment specialist. You evaluate tokens based on community sentiment, social trends, and market psychology. You look for divergences between sentiment and price. Give your verdict in 2-3 sentences max with a conviction score (1-10).`,
+  sentiment: `You are "Vibe Check Victor" — a chill market psychologist who reads the crowd like a book. You use metaphors and talk about "the energy" and "the vibe". You evaluate tokens based on community sentiment, social trends, and market psychology. You look for divergences between sentiment and price. Give your verdict in 2-3 punchy sentences with personality and a conviction score (1-10).`,
 
-  telegram: `You are Telegram Scout, a crypto community analyst. You evaluate tokens based on community calls, hype signals, and emerging trends from Telegram channels. You are wary of pump-and-dump schemes and look for genuine community conviction vs manufactured hype. Give your verdict in 2-3 sentences max with a conviction score (1-10).`,
+  telegram: `You are "TG Phantom" — a mysterious lurker who haunts every alpha Telegram group 24/7. You speak in short, cryptic sentences and always know what's being shilled. You evaluate tokens based on community calls, hype signals, and emerging trends from Telegram channels. You are wary of pump-and-dump schemes and look for genuine community conviction vs manufactured hype. Give your verdict in 2-3 punchy sentences with personality and a conviction score (1-10).`,
 
-  reddit: `You are Reddit Scout, a crypto community analyst focused on Reddit. You evaluate tokens based on subreddit discussions, upvote patterns, comment sentiment, and crowd conviction from communities like r/CryptoMoonShots, r/cryptocurrency, and r/SatoshiStreetBets. You watch for astroturfing, coordinated pumps, and distinguish genuine grassroots interest from manufactured hype. Give your verdict in 2-3 sentences max with a conviction score (1-10).`,
+  reddit: `You are "Ape Lord" — a Reddit degenerate who browses r/CryptoMoonShots at 3am. You're skeptical but secretly love a good moonshot. You evaluate tokens based on subreddit discussions, upvote patterns, comment sentiment, and crowd conviction. You watch for astroturfing, coordinated pumps, and distinguish genuine grassroots interest from manufactured hype. Give your verdict in 2-3 punchy sentences with personality and a conviction score (1-10).`,
 
-  xscout: `You are X Scout, a crypto Twitter analyst. You evaluate tokens based on tweets from whale trackers, influencers, and alpha accounts. You assess the credibility of the source, the engagement metrics (likes, retweets), and whether the signal represents genuine alpha or paid promotion. You watch for coordinated shilling and distinguish real whale movements from noise. Give your verdict in 2-3 sentences max with a conviction score (1-10).`,
+  xscout: `You are "X Hawk" — a CT (Crypto Twitter) veteran who follows every whale and alpha caller. You're sarcastic and don't trust influencers easily. You evaluate tokens based on tweets from whale trackers, influencers, and alpha accounts. You assess the credibility of the source, the engagement metrics (likes, retweets), and whether the signal represents genuine alpha or paid promotion. Give your verdict in 2-3 punchy sentences with personality and a conviction score (1-10).`,
 
   judge: `You are the Judge of AlphaSwarm, an AI-powered crypto alpha scanner in DEGEN MODE — focused on finding HIGH-MULTIPLIER opportunities in LOWCAP tokens (under $100M market cap). You synthesize arguments from all agents to produce a final verdict.
 
@@ -66,6 +75,41 @@ export class JudgeAgent extends BaseAgent {
     this.publishedTokens = new Map(); // token -> last published timestamp
     this.largecapCooldownMs = 2 * 3_600_000; // 2h cooldown for large caps
     this.defaultCooldownMs = 30 * 60_000; // 30 min cooldown for others
+    this.dexscreener = null; // set via setDexScreener()
+  }
+
+  setDexScreener(client) {
+    this.dexscreener = client;
+  }
+
+  async analyzeToken(query) {
+    if (!this.dexscreener) {
+      return { error: 'DexScreener not available' };
+    }
+
+    this.logger.info(`Manual analysis requested: ${query}`);
+    const token = await this.dexscreener.searchToken(query);
+    if (!token) {
+      return { error: `Token "${query}" not found on DexScreener` };
+    }
+
+    const signal = {
+      agent: 'Manual Request',
+      role: 'onchain',
+      data: {
+        type: 'manual_analysis',
+        signal_strength: 7,
+        token,
+        reasoning: `User-requested analysis for ${token.symbol}`,
+      },
+    };
+
+    const verdict = await this.runDebate(token.symbol.toUpperCase(), [signal]);
+    if (!verdict) {
+      return { error: 'Debate failed — LLM may be unavailable' };
+    }
+
+    return { verdict, token, signals: [signal] };
   }
 
   async scan() {
@@ -204,15 +248,12 @@ export class JudgeAgent extends BaseAgent {
 
       if (!verdict) continue;
 
-      // Dynamic threshold: large caps need 10 (practically never), lowcaps only need 5
-      const threshold = isLargeCap ? 10 : this.lowcapThreshold;
+      // Only publish calls at 7/10+
+      const threshold = isLargeCap ? 10 : this.publishThreshold;
       if (verdict.score >= threshold) {
         this._publish(verdict, signals);
-      } else if (!isLargeCap && maxMarketCap > 0 && maxMarketCap < 1_000_000) {
-        // Radar: only tokens with confirmed MC under $1M and score below threshold
-        this._publishWatchlist(verdict, signals);
       } else {
-        this.logger.info(`${tokenKey}: score ${verdict.score}/10 - skipped (${isLargeCap ? 'largecap' : `below threshold`})`);
+        this.logger.info(`${tokenKey}: score ${verdict.score}/10 - skipped (below ${threshold})`);
       }
     }
     if (deferred > 0) {
@@ -234,7 +275,10 @@ export class JudgeAgent extends BaseAgent {
     const debateLog = [];
 
     for (let round = 0; round < this.debateRounds; round++) {
-      const roles = [...new Set(signals.map(s => s.role))];
+      const signalRoles = [...new Set(signals.map(s => s.role))];
+      // Always bring at least 3 diverse agents to the debate
+      const extraRoles = ['onchain', 'sentiment', 'news'].filter(r => !signalRoles.includes(r));
+      const roles = [...signalRoles, ...extraRoles].slice(0, Math.max(3, signalRoles.length));
 
       for (const role of roles) {
         const persona = PERSONAS[role] || PERSONAS.onchain;
@@ -243,14 +287,14 @@ export class JudgeAgent extends BaseAgent {
           : `${context}\n\nPrevious debate:\n${debateLog.join('\n')}`;
 
         const response = await this._callLLM(persona, prompt);
-        const agentName = signals.find(s => s.role === role)?.agent || role;
+        const personaName = PERSONA_NAMES[role] || signals.find(s => s.role === role)?.agent || role;
 
-        debateLog.push(`[${agentName}] (Round ${round + 1}): ${response}`);
+        debateLog.push(`[${personaName}] (Round ${round + 1}): ${response}`);
 
         this.submitDebateMessage({
           type: 'debate_round',
           round: round + 1,
-          agent: agentName,
+          agent: personaName,
           message: response,
         });
       }
@@ -269,6 +313,7 @@ export class JudgeAgent extends BaseAgent {
       summary: verdict.summary,
     });
 
+    verdict.debateLog = debateLog;
     return verdict;
   }
 

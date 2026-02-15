@@ -66,7 +66,7 @@ export class Formatter {
     return `[${agent}] ${typeof data === 'string' ? data : JSON.stringify(data)}`;
   }
 
-  static formatTelegramCall(verdict, signals) {
+  static formatTelegramCall(verdict, signals, options = {}) {
     const token = Formatter._extractToken(signals);
     const score = verdict.score || 0;
     const args = verdict.arguments_for || [];
@@ -121,16 +121,33 @@ export class Formatter {
       msg += `*Small position only. DYOR. NFA.*\n`;
     }
 
+    // Agent debate quotes
+    if (verdict.debateLog?.length) {
+      msg += '\n\u{1F4AC} *Agent Debate:*\n';
+      for (const entry of verdict.debateLog) {
+        const match = entry.match(/^\[(.+?)\] \(Round (\d+)\): (.+)/s);
+        if (match) {
+          const [, agent, , text] = match;
+          const short = text.length > 150 ? text.slice(0, 150) + '...' : text;
+          msg += `\u{1F5E3} *${agent}:* _${short}_\n`;
+        }
+      }
+    }
+
     // DexScreener link
     const dexUrl = Formatter._dexScreenerUrl(token);
-    if (dexUrl) msg += `\n\u{1F50D} [View on DexScreener](${dexUrl})\n`;
+    if (dexUrl) msg += `\n\u{1F50D} [View on DexScreener](${dexUrl})`;
 
-    msg += `\n\u23F0 _${new Date().toISOString().slice(0, 19)} UTC_`;
+    // Jupiter swap link with referral (Solana tokens only)
+    const jupUrl = Formatter._jupiterSwapUrl(token, options.referralWallet);
+    if (jupUrl) msg += `\n\u{1F4B8} [Buy on Jupiter](${jupUrl})`;
+
+    msg += `\n\n\u23F0 _${new Date().toISOString().slice(0, 19)} UTC_`;
     msg += `\n\u{1F517} _Powered by AlphaSwarm AI_`;
     return msg;
   }
 
-  static formatTelegramWatchlist(verdict, signals) {
+  static formatTelegramWatchlist(verdict, signals, options = {}) {
     const token = Formatter._extractToken(signals);
     const score = verdict.score || 0;
     const risks = verdict.risks || [];
@@ -163,14 +180,32 @@ export class Formatter {
       msg += '\n';
     }
 
+    // Agent debate quotes
+    if (verdict.debateLog?.length) {
+      msg += '\u{1F4AC} *Agent Debate:*\n';
+      for (const entry of verdict.debateLog) {
+        const match = entry.match(/^\[(.+?)\] \(Round (\d+)\): (.+)/s);
+        if (match) {
+          const [, agent, , text] = match;
+          const short = text.length > 150 ? text.slice(0, 150) + '...' : text;
+          msg += `\u{1F5E3} *${agent}:* _${short}_\n`;
+        }
+      }
+      msg += '\n';
+    }
+
     msg += `\u{1F6A8} *DISCLAIMER:* This token scored *${score}/10* — below our call threshold. `;
     msg += `It may be interesting to watch for a deep/dip entry if you believe in the project. `;
     msg += `*DYOR — this is NOT a call.*\n`;
 
     const dexUrl = Formatter._dexScreenerUrl(token);
-    if (dexUrl) msg += `\n\u{1F50D} [View on DexScreener](${dexUrl})\n`;
+    if (dexUrl) msg += `\n\u{1F50D} [View on DexScreener](${dexUrl})`;
 
-    msg += `\n\u23F0 _${new Date().toISOString().slice(0, 19)} UTC_`;
+    // Jupiter swap link with referral (Solana tokens only)
+    const jupUrl = Formatter._jupiterSwapUrl(token, options.referralWallet);
+    if (jupUrl) msg += `\n\u{1F4B8} [Buy on Jupiter](${jupUrl})`;
+
+    msg += `\n\n\u23F0 _${new Date().toISOString().slice(0, 19)} UTC_`;
     msg += `\n\u{1F517} _Powered by AlphaSwarm AI_`;
     return msg;
   }
@@ -232,6 +267,16 @@ export class Formatter {
       return `https://dexscreener.com/search?q=${token.symbol}`;
     }
     return '';
+  }
+
+  static _jupiterSwapUrl(token, referralWallet) {
+    if (!token.address || token.address.length < 20) return '';
+    const chain = (token.chain || '').toLowerCase();
+    if (chain !== 'solana' && chain !== 'sol') return '';
+    const solMint = 'So11111111111111111111111111111111111111112';
+    let url = `https://jup.ag/swap/${solMint}-${token.address}`;
+    if (referralWallet) url += `?referral=${referralWallet}`;
+    return url;
   }
 
   static _fmtNum(n) {

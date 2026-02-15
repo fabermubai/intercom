@@ -579,10 +579,14 @@ sidechannel
     judgeAgent.registerAgents(scannerAgents);
     globalThis._alphaswarmJudge = judgeAgent;
 
+    // Give Judge access to DexScreener for manual /analyze
+    judgeAgent.setDexScreener(onchainAgent.dexscreener);
+
     // Telegram relay
     const telegramRelay = new TelegramRelay(alphaswarmConfig);
     telegramRelay.start();
     telegramRelay.attachToJudge(judgeAgent);
+    telegramRelay.startPolling();
 
     // Twitter/X relay
     const twitterRelay = new TwitterRelay(alphaswarmConfig);
